@@ -1,4 +1,4 @@
-// test_routes.c - loads romfs/routes/gsc.txt and xy.txt with routes.c and builds every course's walker route for
+// test_routes.c - loads romfs/routes/gsc.txt, xy.txt and sm.txt with routes.c and builds every course's walker route for
 // every version: 6 Pokemon / 10 items per course, a walker route from it (pictures, names, sprites), and the
 // built walk round-trips through wbx_walk_compose / wbx_walk_extract.
 #include <stdio.h>
@@ -24,6 +24,21 @@ static void one(const char *file, const char *ver, int gen)
 	static route_file rf;
 	int n = routes_load(file, &rf);
 	CHECK(n > 0, "%s: loaded %d courses", file, n);
+	CHECK(rf.rejected == 0, "%s: %d line(s) rejected by the parser (audit M7)", file, rf.rejected);
+	// audit M9: the parser's limits - names / descriptions / pictures must fit (a longer one would be cut silently)
+	for (int i = 0; i < rf.ncourse; i++) {
+		const route_course *c = &rf.course[i];
+		CHECK(strlen(c->name) < sizeof(c->name) - 1, "%s: course name at the limit: %s", file, c->name);
+		CHECK(strlen(c->desc) < sizeof(c->desc) - 1, "%s %s: description at the limit (cut?)", file, c->name);
+		CHECK(strlen(c->picture) < sizeof(c->picture) - 1, "%s %s: picture name at the limit", file, c->name);
+		CHECK(c->npoke == 6 && c->nitem <= 20, "%s %s: %d Pokemon / %d items", file, c->name, c->npoke, c->nitem);
+		char pic[128];
+		snprintf(pic, sizeof(pic), ROUTES_DIR "/pictures/%s.txt", c->picture);
+		FILE *pf = fopen(pic, "r");
+		CHECK(pf != NULL, "%s %s: picture file %s missing", file, c->name, pic);
+		if (pf)
+			fclose(pf);
+	}
 	int built = 0;
 	for (int i = 0; i < rf.ncourse; i++) {
 		const route_course *c = &rf.course[i];
@@ -76,6 +91,28 @@ int main(void)
 	CHECK(!routes_unlocked("hof watts=5000", 16, 0, 99999) && !routes_unlocked("hof watts=5000", 16, 1, 4999) &&
 	      routes_unlocked("hof watts=5000", 16, 1, 5000), "hof watts=5000 needs both");
 	CHECK(routes_unlocked("something new", 0, 0, 0), "unknown unlock text stays open");
+	// v0.55: Sun / Moon / Ultra Sun / Ultra Moon
+	one("sm", "sn", 7);
+	one("sm", "mn", 7);
+	one("sm", "us", 7);
+	one("sm", "um", 7);
+	CHECK(routes_file_for(0x0004000000175E00ULL, 7, &v) && !strcmp(v, "mn"), "Moon -> sm/mn");
+	CHECK(routes_file_for(0x0004000000164800ULL, 7, &v) && !strcmp(v, "sn"), "Sun -> sm/sn");
+	CHECK(routes_file_for(0x00040000001B5000ULL, 7, &v) && !strcmp(v, "us"), "Ultra Sun -> sm/us");
+	CHECK(routes_file_for(0x00040000001B5100ULL, 7, &v) && !strcmp(v, "um"), "Ultra Moon -> sm/um");
+	CHECK(!routes_unlocked("trials=3", 2, 0, 0) && routes_unlocked("trials=3", 3, 0, 0), "trials=3 opens at 3");
+	{
+		char u[48];
+		routes_unlock_text("trials=6", u, sizeof u);
+		CHECK(!strcmp(u, "After Olivia's grand trial"), "trials=6 text: %s", u);
+		static route_file rf;
+		routes_load("sm", &rf);
+		int forms = 0;
+		for (int i = 0; i < rf.ncourse; i++)
+			for (int k = 0; k < rf.course[i].npoke; k++)
+				forms += rf.course[i].poke[k].form != 0;
+		CHECK(forms == 6, "sm: %d Pokemon with a form (expected 6: 5 Alolan + Blue-Striped Basculin)", forms);
+	}
 	printf(fails ? "ROUTE TESTS: %d FAILED\n" : "route tests passed (%d failures)\n", fails);
 	return fails != 0;
 }

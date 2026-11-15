@@ -30,7 +30,7 @@ done
 g++ -std=gnu++20 -O1 -Wall -Wextra $DEFS $INC -I$HERE/include \
     "$HERE/tests/test_catches.cpp" "$HERE/source/walk_catch.cpp" "${objs[@]}" -o "$OUT/test_catches"
 C=$HOME/wbx-catches
-rm -rf "$C" && mkdir -p "$C/xy" "$C/gsc"
+rm -rf "$C" && mkdir -p "$C/xy" "$C/gsc" "$C/sm"
 "$OUT/test_catches" "$HERE/romfs/routes/catch_xy.bin" "$C/xy" \
     "$HERE/hw/gen6/0004000000055d00-20261118-204520.main" "$HERE/hw/gen6/0004000000055d00-20261118-204520.main"
 "$OUT/test_catches" "$HERE/romfs/routes/catch_gsc.bin" "$C/gsc" \
@@ -38,13 +38,20 @@ rm -rf "$C" && mkdir -p "$C/xy" "$C/gsc"
     "$HERE/hw/gen2/0004000000172800-20261118-190237.sav"
 export DOTNET_ROOT=$HOME/.dotnet DOTNET_CLI_TELEMETRY_OPTOUT=1
 CHK=~/pkhex-check/bin/Release/net10.0/pkhex-check
+# v0.55 Sun / Moon / Ultra: no Gen 7 save in hw/ yet, so PKHeX makes blank saves with a test trainer (blank7)
+B=$HOME/wbx-blank7
+mkdir -p "$B" "$C/sm"
+for v in SN MN US UM; do "$CHK" blank7 "$B/$v.main" $v > /dev/null; done
+"$OUT/test_catches" "$HERE/romfs/routes/catch_sm.bin" "$C/sm" "$B/SN.main" "$B/MN.main" "$B/US.main" "$B/UM.main"
 set +e
 "$CHK" pk 6 "$C"/xy/*.pk6 > "$C/xy.txt"; r6=$?
 "$CHK" pk 2 "$C"/gsc/*.pk2 > "$C/gsc.txt"; r2=$?
+"$CHK" pk 7 "$C"/sm/*.pk7 > "$C/sm.txt"; r7=$?
 echo "X/Y: $(grep -c '^OK' "$C/xy.txt") legal, $(grep -c '^ILLEGAL' "$C/xy.txt") illegal"
 echo "GSC: $(grep -c '^OK' "$C/gsc.txt") legal, $(grep -c '^ILLEGAL' "$C/gsc.txt") illegal"
-grep -A4 '^ILLEGAL' "$C/xy.txt" "$C/gsc.txt" | head -60
-if [ $r6 -ne 0 ] || [ $r2 -ne 0 ]; then echo "CATCH TESTS FAILED"; exit 1; fi
+echo "SM/USUM: $(grep -c '^OK' "$C/sm.txt") legal, $(grep -c '^ILLEGAL' "$C/sm.txt") illegal"
+grep -A4 '^ILLEGAL' "$C/xy.txt" "$C/gsc.txt" "$C/sm.txt" | head -60
+if [ $r6 -ne 0 ] || [ $r2 -ne 0 ] || [ $r7 -ne 0 ]; then echo "CATCH TESTS FAILED"; exit 1; fi
 set -e
 echo "catch tests passed"
 
@@ -54,7 +61,8 @@ g++ -std=gnu++20 -O1 -Wall -Wextra $DEFS $INC -I$HERE/include \
 I=$HOME/wbx-items
 rm -rf "$I" && mkdir -p "$I"
 "$OUT/test_items" "$I" "$HERE/hw/gen2/0004000000172800-20261118-190237.sav" \
-    "$HERE/hw/gen2/0004000000172700-20261118-185538.sav" "$HERE/hw/gen6/0004000000055d00-20261118-204520.main"
+    "$HERE/hw/gen2/0004000000172700-20261118-185538.sav" "$HERE/hw/gen6/0004000000055d00-20261118-204520.main" \
+    "$HERE/hw/gen7/moon_before_160900.main"
 # PKHeX must judge each changed save as it judges the untouched one (the user's Gold/Silver files already fail
 # PKHeX's backup-copy check: that stays as it was; Crystal and X/Y must stay valid)
 O=$HOME/wbx-items-orig

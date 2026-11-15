@@ -2,6 +2,7 @@
 // the licences of what ships in the app (CC BY 4.0 for the walker model, MIT for PokeSprite, GPL-3.0 notice).
 #include <stdio.h>
 
+#include "sound.h"
 #include "ui.h"
 #include "ui_credits.h"
 
@@ -25,7 +26,8 @@ static const char *const k_lines[] = {
 	"Gen 1-4: Pok\xC3\xA9mon HeartGold / SoulSilver.",
 	"Gen 1/2 large pictures: based on Pok\xC3\xA9mon Crystal.",
 	"Gen 5: Black / White sprites (Bulbagarden Archives).",
-	"Gen 6/7: Smogon Sprite Project. Spriters:",
+	"Gen 6/7 and Alolan forms: Smogon Sprite",
+	"Project. Spriters:",
 	"AMVictory, Arkeis, aXl, Branflakes325, Bynine, Corson,",
 	"Espeon Scientist, fishbowlsoul90, Galifia, GeoisEvil,",
 	"G.E.Z., HealnDeal, Layell, Legitimate Username,",
@@ -55,7 +57,7 @@ void ui_credits_run(void)
 {
 	int first = 0;
 	while (aptMainLoop()) {
-		hidScanInput();
+		sound_input();
 		u32 d = hidKeysDown(), h = hidKeysHeld();
 		if (d & (KEY_B | KEY_A))
 			break;

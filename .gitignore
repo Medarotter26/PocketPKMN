@@ -6,6 +6,7 @@ build/
 cia/out/
 __pycache__/
 *.pyc
+# never upload ROMs, saves, walker dumps or private notes
 *.nds
 *.gba
 *.gb

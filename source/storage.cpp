@@ -618,6 +618,8 @@ namespace
         if (!e[0])
             return nullptr;
         u16 len = (u16)(e[2] | (e[3] << 8));
+        if (len == 0 || len > BANK_DATA) // audit M3: a damaged entry is not read past its end
+            return nullptr;
         return pksm::PKX::getPKM(genFromNumber(e[0]), e + 8, len);
     }
 
@@ -960,6 +962,19 @@ namespace
             dbg_printf("storage: %s", note.c_str());
             return writeUserSave(f.titleId, f.media, f.path, sav.rawData().get(), f.length);
         }
+        if (sav.generation() == pksm::Generation::SEVEN) // v0.56 (user's Moon pair: tests/test_gen7.cpp)
+        {
+            if (before.size() != f.length ||
+                !walkerbox::gameMatchFinish7(sav, before.data(), f.length, editedBox, note))
+            {
+                dbg_printf("storage: Gen 7 save REFUSED: %s", note.c_str());
+                if (refused)
+                    *refused = true;
+                return false;
+            }
+            dbg_printf("storage: %s", note.c_str());
+            return writeUserSave(f.titleId, f.media, f.path, sav.rawData().get(), f.length);
+        }
         u32 restored = walkerbox::gameMatchFinish(sav, f.length, editedBox, note);
         dbg_printf("storage: %s (%lu byte(s) put back)", note.c_str(), (unsigned long)restored);
         if (sav.rawData().get() != f.data.get())
@@ -1125,14 +1140,7 @@ namespace
         }
         consoleSelect(g_bottom);
         consoleClear();
-        if (f.sav->generation() == pksm::Generation::SEVEN)
-        {
-            // Comes with Gen 7 moves; WalkerBox has not written to these saves.
-            printf("Restoring is not available for\nGen 7 saves yet. (PocketPKMN has\nnot written to this save.)\n\nA/B: back\n");
-            refresh();
-            waitKeys(KEY_A | KEY_B);
-            return;
-        }
+        // v0.56: Gen 7 moves are on, so restoring a Gen 7 backup is too (it puts the game's own save file back)
         if (newest.empty())
         {
             printf("No backup of this game yet.\n(One is made before the first\nmove.)\n\nA/B: back\n");
@@ -1858,7 +1866,7 @@ extern "C" int storage_walk_return(int box, int slot, unsigned long fingerprint,
     }
     auto raw = pk->rawData();
     u16 len  = (u16)(e[2] | (e[3] << 8));
-    if (raw.size() != len)
+    if (raw.size() != len || len > BANK_DATA) // audit M3: never past the entry
     {
         setWhy(why, why_size, "The changed Pokemon has a different size; nothing was written.");
         return -1;
@@ -2248,7 +2256,52 @@ namespace
         }
         if (gen == 6 && (f.sav->version() == pksm::GameVersion::X || f.sav->version() == pksm::GameVersion::Y))
             return f.length > 0x195B3 && (d[0x195B3] & 0x80) != 0;
+        if (gen == 7) // the first Hall of Fame team's first species (PKHeX: HallOfFame7.First1); 0 = never entered
+        {
+            bool usum = f.sav->version() == pksm::GameVersion::US || f.sav->version() == pksm::GameVersion::UM;
+            u32 at    = usum ? 0x283C : 0x25C4;
+            if (f.length < at + 2)
+                return 0;
+            u16 sp = (u16)(d[at] | d[at + 1] << 8);
+            return sp >= 1 && sp <= 807;
+        }
         return 0;
+    }
+
+    // Gen 7 has no badges: the island trials done = the trial Z-Crystals in the bag (each trial gives one, they can
+    // never leave the bag): Ilima Normalium, Hala Fightinium, Lana Waterium, Kiawe Firium, Mallow Grassium, Olivia
+    // Rockium, Sophocles Electrium, Acerola Ghostium, Nanu Darkinium, Vast Poni Dragonium, Hapu Groundium. The trials
+    // come in a fixed order, so the count tells how far the player is ("trials=N" in tools/routes_sm.py).
+    // v0.55b fix (console test: Moon read "0 trials" with the Hall of Fame entered): the Z-Crystal pouch holds the
+    // BAG form of each crystal, item 807+ (PKHeX: Normalium Z [Z] = 807 ... Groundium Z [Z] = 815), not the held
+    // form 776+ used before. Both forms are accepted; the crystals found are logged.
+    int trialsOf(const FoundSave& f)
+    {
+        static const u16 kTrialZ[] = {807, 813, 809, 808, 811, 819, 810, 820, 822, 821, 815}; // bag form, story order
+        int n = 0;
+        int slots = 0;
+        for (const auto& p : f.sav->pouches())
+            if (p.first == pksm::Sav::Pouch::ZCrystals)
+                slots = p.second;
+        std::string seen;
+        for (int s = 0; s < slots; s++)
+        {
+            auto it = f.sav->item(pksm::Sav::Pouch::ZCrystals, (u16)s);
+            if (it && it->id())
+                seen += " " + std::to_string(it->id());
+        }
+        for (u16 z : kTrialZ)
+            for (int s = 0; s < slots; s++)
+            {
+                auto it = f.sav->item(pksm::Sav::Pouch::ZCrystals, (u16)s);
+                if (it && (it->id() == z || it->id() == z - 31)) // bag form, or the held form 31 lower
+                {
+                    n++;
+                    break;
+                }
+            }
+        dbg_printf("storage: Z-Crystals in the bag:%s -> %d trial(s)", seen.empty() ? " none" : seen.c_str(), n);
+        return n;
     }
 
     struct Progress
@@ -2303,7 +2356,7 @@ extern "C" int storage_games_scan(storage_game_info* out, int max, char* why, in
         g.boxes      = f.sav->maxBoxes();
         g.per_box    = g.boxes ? f.sav->maxSlot() / g.boxes : 0;
         // v0.52: progress for the course unlocks (badges: PKSM-Core; Gen 2 counts Johto + Kanto badges)
-        g.badges = f.sav->badges();
+        g.badges = g.gen == 7 ? trialsOf(f) : f.sav->badges(); // Gen 7: island trials done
         g.hof    = hallOfFameOf(f);
         bool known = false;
         for (Progress& p : g_progress)
@@ -2533,17 +2586,21 @@ namespace
         return false;
     }
 
-    // the course Pokemon a catch came from: same species, level and moves on one of the game's courses
+    // the course Pokemon a catch came from: same species, level and moves on one of the game's courses (and, since
+    // v0.55, the same form when the walker brought one back - Red / Blue-Striped Basculin share everything else)
     bool findCoursePoke(const char* routesFile, const storage_catch& c, int& course, int& poke)
     {
         static route_file rf;
         if (routes_load(routesFile, &rf) <= 0)
             return false;
+        for (int pass = 0; pass < 2; pass++) // pass 0: the form must match too; pass 1: any form
         for (int ci = 0; ci < rf.ncourse; ci++)
             for (int pi = 0; pi < rf.course[ci].npoke; pi++)
             {
                 const route_poke_def& p = rf.course[ci].poke[pi];
                 if (p.species != c.species || p.level != c.level)
+                    continue;
+                if (pass == 0 && p.form != c.form)
                     continue;
                 bool same = true;
                 for (int m = 0; m < 4; m++)
@@ -2612,6 +2669,14 @@ extern "C" int storage_deliver_catches(int from_box, int from_slot, const storag
         tplFile = "romfs:/routes/catch_gsc.bin";
         vi      = ver == pksm::GameVersion::C ? 2 : ver == pksm::GameVersion::SV ? 1 : 0;
     }
+    else if (gen == 7) // v0.55: Sun / Moon / Ultra Sun / Ultra Moon (tools/routes_sm.py, templates SN MN US UM)
+    {
+        tplFile = "romfs:/routes/catch_sm.bin";
+        vi      = ver == pksm::GameVersion::SN ? 0 : ver == pksm::GameVersion::MN ? 1
+                : ver == pksm::GameVersion::US ? 2 : ver == pksm::GameVersion::UM ? 3 : -1;
+        if (vi < 0)
+            tplFile = nullptr;
+    }
     if (!tplFile || !routesFile)
     {
         setWhy(msg, msg_size, "No catches can be made for this game yet.");
@@ -2623,7 +2688,7 @@ extern "C" int storage_deliver_catches(int from_box, int from_slot, const storag
     tr.sid      = gen == 2 ? 0 : f.sav->SID();
     tr.female   = f.sav->gender() == pksm::Gender::Female;
     tr.language = f.sav->language();
-    if (gen == 6)
+    if (gen == 6 || gen == 7)
     {
         tr.country       = f.sav->country();
         tr.subRegion     = f.sav->subRegion();

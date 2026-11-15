@@ -48,10 +48,17 @@ int wbx_sprite_load(int dex, uint8_t out[WBX_SPRITE_SIZE]);
 #define WBX_SPRITE12_DIR      "romfs:/sprites/gen12"
 #endif
 #define WBX_SPRITE12_LAST     251
+// Form sprites (Gen 7 games): romfs/sprites/forms/NNN_fF.bin (F = the form number, e.g. 019_f1.bin = Alolan
+// Rattata), same 0x780-byte layout as the pack. A missing form file falls back to the species' pack sprite.
+#ifdef WBX_SPRITE_FORMS_PC_DIR
+#define WBX_SPRITE_FORMS_DIR  WBX_SPRITE_FORMS_PC_DIR // PC tests only
+#else
+#define WBX_SPRITE_FORMS_DIR  "romfs:/sprites/forms"
+#endif
 
 // The sprite for a Pokemon from a game of generation gen: Gen 1/2 games -> the Gen 1/2 set (form = Unown's
-// letter 0-25), otherwise (and if that file is missing) the pack as wbx_sprite_load. A Gen 3 set does not exist
-// yet. Returns 1 if a file was used, 0 for the placeholder.
+// letter 0-25), Gen 7 games with form > 0 -> WBX_SPRITE_FORMS_DIR, otherwise (and if that file is missing) the
+// pack as wbx_sprite_load. A Gen 3 set does not exist yet. Returns 1 if a file was used, 0 for the placeholder.
 int wbx_sprite_load_for(int dex, int form, int gen, uint8_t out[WBX_SPRITE_SIZE]);
 
 // WalkerBox's own placeholder sprite (no game art): a "?" in a box, both sizes, both frames.

@@ -1,0 +1,12 @@
+# Alolan forms (walker_alola.py), LARGE picture: "dex RRGGBB shade" (0 white .. 3 black).
+# Rattata (user 2026-11-15: "Ratatta looks a bit off"): the dark body's shadow went black and
+# merged with the outlines, the red eye came out light. Lighter spread as for Zekrom: body light
+# grey, shading dark grey, cream face white, eye black.
+19 646c60 1
+19 4a4f48 2
+19 323832 2
+19 dcc8a3 0
+19 bf9b7b 1
+19 86694f 2
+19 bf0d0d 3
+19 e73d3d 3

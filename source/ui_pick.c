@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "storage.h"
+#include "sound.h"
 #include "ui.h"
 #include "ui_icons.h"
 #include "ui_pick.h"
@@ -300,7 +301,7 @@ static int confirm_send(int g, int box, int cur, const storage_box_mon *m)
 	snprintf(a, sizeof(a), "Send %s (Lv.%d) for a walk?", m->nickname, m->level);
 	const char *lines[3] = { a, "It moves out of the game into the", "walker slot and comes back after." };
 	while (aptMainLoop()) {
-		hidScanInput();
+		sound_input();
 		u32 d = hidKeysDown();
 		if (d & KEY_A)
 			return 1;
@@ -325,7 +326,7 @@ static void message(int g, int box, int cur, const char *title, const char *msg)
 	for (char *s = strtok(buf, "\n"); s && n < 6; s = strtok(NULL, "\n"))
 		lines[n++] = s;
 	while (aptMainLoop()) {
-		hidScanInput();
+		sound_input();
 		if (hidKeysDown() & (KEY_A | KEY_B))
 			return;
 		if (ui_begin()) {
@@ -345,7 +346,7 @@ static int box_view(int g)
 	if (!load_box(g, box))
 		return 0;
 	while (aptMainLoop()) {
-		hidScanInput();
+		sound_input();
 		u32 d = hidKeysDown();
 		if (d & (KEY_B | KEY_X))
 			return 0;
@@ -371,10 +372,10 @@ static int box_view(int g)
 				if (tp.px >= cx - 18 && tp.px < cx + 18 && tp.py >= cy - 14 && tp.py < cy + 14)
 					cur = i;
 			}
-			if (tp.py < 30 && tp.px < 60) {
+			if (tp.py < 30 && tp.px < 60 && nboxes > 0) { // audit M13
 				box = (box + nboxes - 1) % nboxes;
 				load_box(g, box);
-			} else if (tp.py < 30 && tp.px > 260) {
+			} else if (tp.py < 30 && tp.px > 260 && nboxes > 0) {
 				box = (box + 1) % nboxes;
 				load_box(g, box);
 			}
@@ -433,7 +434,7 @@ int ui_pick_for_walk(char *why, int why_size)
 		ui_title_load(&icons[i], games[i].title_id);
 	int sel = 0, nc = 0;
 	while (aptMainLoop()) {
-		hidScanInput();
+		sound_input();
 		u32 d = hidKeysDown();
 		if (nc) { // the Not yet compatible dialog is open
 			if (d & (KEY_A | KEY_B))
@@ -511,7 +512,7 @@ int ui_slot_waiting(const unsigned char *sprite, const char *label,
 	const char *ask[2] = { "Send it on another walk,", "or try to put it back in its game?" };
 	int result = 0;
 	while (aptMainLoop()) {
-		hidScanInput();
+		sound_input();
 		u32 d = hidKeysDown();
 		if (d & KEY_B)
 			break;
@@ -527,7 +528,7 @@ int ui_slot_waiting(const unsigned char *sprite, const char *label,
 			for (char *s = strtok(m, "\n"); s && n < 6; s = strtok(NULL, "\n"))
 				lines[n++] = s;
 			while (aptMainLoop()) {
-				hidScanInput();
+				sound_input();
 				if (hidKeysDown() & (KEY_A | KEY_B))
 					break;
 				if (ui_begin()) {

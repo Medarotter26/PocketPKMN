@@ -147,6 +147,10 @@ def main():
                 raise SystemExit("%s group %s has %d Pokemon" % (cname, grp, len(members)))
             slot, chance = GROUP_SLOT[grp]
             for _, pname, level, steps in members:
+                # user 2026-11-15 ("Set A to 0 for all of our games' courses so far"): the walker falls back to group
+                # A whenever nothing else has met its step minimum, so A's minimum never applied -> always 0
+                if grp == "A":
+                    steps = 0
                 # legality fixes the user chose (the workbook is not edited; a rebuild keeps them)
                 level = LEVEL_FIXES.get((cname, pname), level)
                 sid = species.find(SPECIES_ALIASES.get(pname, pname))

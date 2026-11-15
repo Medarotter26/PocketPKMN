@@ -32,11 +32,11 @@ generations 1 to 7, through the 3DS's own IR port.
 
 ### Current version limitations
 
-- **Courses exist only for Gen 2 (Gold / Silver / Crystal) and Gen 6 (X / Y).** Support for the other generations is
-  planned, but their courses are not designed yet. This version is an expanded proof of concept; the courses may
-  still change.
-- **Delivering catches and items is new in v0.53** and has been checked on PC against real saves (every possible
-  catch passes PKHeX), but not yet on a console - keep your save backups.
+- **Courses exist for Gen 2 (Gold / Silver / Crystal), Gen 6 (X / Y) and Gen 7 (Sun / Moon / Ultra Sun / Ultra
+  Moon).** Support for the other generations is planned, but their courses are not designed yet. This version is an
+  expanded proof of concept; the courses may still change.
+- **Gen 7 is new in v0.58** and has been tested on one console with Pokémon Moon (game card); Ultra Sun / Ultra Moon
+  are checked on PC only - keep your save backups.
 - **Gen 5+ Pokémon have no second animation frame** on the walker yet (good frames for Gen 5 are being looked for).
 - Saves that can be used today: see "Supported saves" below.
 
@@ -54,8 +54,12 @@ generations 1 to 7, through the 3DS's own IR port.
 
 - **Send to walker:** choose a game, a box and a Pokémon; it moves out of the game into the app's one walker slot
   and onto the Pokéwalker with a course of that game.
-- **Courses per game:** Pokémon Gold / Silver / Crystal (19 courses) and Pokémon X / Y (18 courses), each with six
-  Pokémon, ten items and its own picture. Games without courses yet show "Not yet compatible".
+- **Courses per game:** Pokémon Gold / Silver / Crystal (19 courses), Pokémon X / Y (18 courses) and Pokémon Sun /
+  Moon / Ultra Sun / Ultra Moon (18 courses, opening with the island trials), each with six Pokémon, ten items and
+  its own picture. Games without courses yet show "Not yet compatible".
+- **Sound:** button clicks and transfer sounds (PocketPKMN's own). Background music is optional and **not
+  included**: put your own `music.bin` (made with `tools/make_music.py`, see `tools/find_loop.py` for the loop) in
+  `sdmc:/3ds/pocketpkmn/`. Sound needs the console's DSP firmware (`sdmc:/3ds/dspfirm.cdc`).
 - **End walk:** reads the walker back and returns the Pokémon to its game with the walk's gains, the way
   HeartGold / SoulSilver does it (EXP = steps, at most one level; level-up friendship; +1 friendship for 5,000+
   steps), plus optional EV training (+1 EV every 20 steps in a stat you choose).
@@ -64,8 +68,8 @@ generations 1 to 7, through the 3DS's own IR port.
 - Safety first: a full walker backup before every write, game save backups before the first change, and a detailed
   link log (`sdmc:/3ds/pocketpkmn/link_log.txt`).
 
-Supported saves: Game Boy Virtual Console (Gen 1/2), GBA Virtual Console injects (Gen 3), Pokémon X / Y and
-Omega Ruby / Alpha Sapphire (game card). Gen 4/5/7 saves are planned.
+Supported saves: Game Boy Virtual Console (Gen 1/2), GBA Virtual Console injects (Gen 3), Pokémon X / Y, Omega
+Ruby / Alpha Sapphire, Sun / Moon and Ultra Sun / Ultra Moon (game card or download). Gen 4/5 saves are planned.
 
 ## Requirements
 
@@ -84,12 +88,13 @@ rename used `sdmc:/3ds/walkerbox/`; the first start moves that folder.
 
 ## Build
 
+Full details (tool versions, the WSL distribution `build.ps1` expects): [docs/BUILDING.md](docs/BUILDING.md).
 devkitARM (devkitPro) with libctru, citro2d and citro3d. On Windows the included `build.ps1` builds inside the
 `devkitpro/devkitarm` Docker image in WSL:
 
 ```
 .\build.ps1        # pocketpkmn.3dsx
-.\build.ps1 cia    # also pocketpkmn.cia (needs makerom + bannertool, see cia/make_cia.sh)
+.\build.ps1 cia    # also pocketpkmn.cia (needs makerom + bannertool, see docs/BUILDING.md)
 ```
 
 Elsewhere: `make` (and `make cia`). `make` does not notice changes in `romfs/` - delete the .3dsx first.
@@ -113,5 +118,6 @@ Sprite Project and its spriters, PokeSprite, the Pokéwalker 3D model by Callum 
 
 ## Licence
 
-GNU General Public License v3.0 - see [LICENSE](LICENSE). PocketPKMN uses PKSM-Core (GPL-3.0). Third-party parts
+GNU General Public License v3.0 - see [LICENSE](LICENSE). PocketPKMN uses PKSM-Core (GPL-3.0), with one small local
+change to its Gen 7 save signing (noted in `lib/PKSM-Core/UPSTREAM_COMMIT.txt`). Third-party parts
 keep their own licences (see the credits). Pokémon graphics are © Nintendo / Creatures Inc. / GAME FREAK inc.

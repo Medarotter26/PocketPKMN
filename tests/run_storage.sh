@@ -43,4 +43,12 @@ g++ -std=gnu++20 -O1 -Wall -Wextra $DEFS $INC -I$HERE/include "$HERE/tests/test_
 for g in "$HERE"/hw/gen3/*.gbavc; do "$OUT/test_gen3" "$g"; done
 g++ -std=gnu++20 -O1 -Wall -Wextra $DEFS $INC -I$HERE/include "$HERE/tests/test_gen6.cpp" "$HERE/source/gamematch.cpp" "${objs[@]}" -o "$OUT/test_gen6"
 "$OUT/test_gen6" "$HERE"/hw/gen6/*.main
+# v0.56: Gen 7 box changes against what Moon itself did (the user's Checkpoint pair), then PKHeX on the result
+g++ -std=gnu++20 -O1 -Wall -Wextra $DEFS $INC -I$HERE/include "$HERE/tests/test_gen7.cpp" "$HERE/source/gamematch.cpp" "${objs[@]}" -o "$OUT/test_gen7"
+"$OUT/test_gen7" "$HERE/hw/gen7/moon_before_160900.main" "$HERE/hw/gen7/moon_after_161029.main" "$OUT/gen7_result.main"
+if [ -x ~/pkhex-check/bin/Release/net10.0/pkhex-check ]; then
+  # PKHeX opens it, and the signature verifies (PKHeX's own re-signing pads differently, so no byte compare)
+  DOTNET_ROOT=$HOME/.dotnet ~/pkhex-check/bin/Release/net10.0/pkhex-check memecheck "$OUT/gen7_result.main" | head -1 | cut -c1-70
+  DOTNET_ROOT=$HOME/.dotnet ~/pkhex-check/bin/Release/net10.0/pkhex-check sav "$OUT/gen7_result.main" | head -1
+fi
 "$OUT/test_storage" "$@"

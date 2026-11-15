@@ -121,6 +121,23 @@ Tool `tools/walker_crystal.py <in> <out>` → `art_src/crystal/out/NNN.large.bin
 - **Complete files**: `tools/walker_gen12_combine.py` → `art_src/gen12/out/NNN.bin` (small + Crystal large,
   0x780 bytes like the Gen 5–7 files); Unown letters share the one Unown minisprite.
 
+## 8c. Alolan forms (2026-11-15)
+
+User: "Can you do the alolan form sprites from here" + the Smogon Gen 7 Sprite Project sheet (the same one as for
+Gen 7), its "Alolan Forms" section: 18 forms (Rattata, Raticate, Raichu, Sandshrew, Sandslash, Vulpix,
+Ninetales, Diglett, Dugtrio, Meowth, Persian, Geodude, Graveler, Golem, Grimer, Muk, Exeggutor, Marowak).
+Tool `tools/walker_alola.py fetch <dir>` / `convert <dir> <out>` → `art_src/alola/{large,small}/`, `credits.csv`,
+`art_src/alola/out/NNN_alola.bin` (0x780 like the others) + `preview.png`.
+- Large: the sheet's "Front" (one picture → both large frames), the original v1 colour rules, mirrored, full size.
+- Small: the Sun/Moon menu icon, Bulbagarden "NNNAMS6.png" (the Alolan form's name; "NNNMS6.png" is the
+  Kanto one), `icon_frames`.
+- 9 are bigger than 64×48; face points in `tools/walker_alola_heads.txt` (grid sheet `art_src/alola/heads_grid.png`).
+- The Alolan forms share dex numbers with Gen 1/2, so the tool uses ONLY its own tables
+  (`walker_alola_heads.txt`, `walker_alola_crops.txt`) and none of the per-dex Gen 5–7 settings.
+- Review 1: Rattata ("looks a bit off": its shadow went black and merged with the outlines, eye lost) → per-colour
+  lines in `tools/walker_alola_colours.txt`, lighter spread as for Zekrom; Golem ("should move down a little") →
+  face point y 40 → 36. User: "both look better". In the app since v0.58: `romfs/sprites/forms/NNN_f1.bin` (`tools/sync_form_sprites.sh`).
+
 ## 9. Open for later
 
 - Gen 1–4 sprites for users without HGSS (source not decided).

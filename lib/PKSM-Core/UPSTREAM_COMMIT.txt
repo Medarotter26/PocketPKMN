@@ -1,3 +1,6 @@
 d9bca6fcdf622760a0aa963565b102276e2ae2a3
 bd3b16ee2c12bd9ee353cf3098cb998e7880638c
 428802d1a5634f96bcd0705fab379ff0113bcf13
+
+PocketPKMN local change (2026-11-15, v0.56): source/sav/SavSUMO.cpp + SavUSUM.cpp resign() build the signed
+block as hash + zeros (as the games do) instead of decrypting the old signature.

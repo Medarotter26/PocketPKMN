@@ -78,8 +78,11 @@ namespace pksm
 
         auto hash = crypto::sha256({&data[checksumTableOffset], checksumTableLength});
 
-        u8 decryptedSignature[0x80];
-        reverseCrypt(&data[memecryptoOffset], decryptedSignature);
+        // PocketPKMN change (v0.56): the signed block is built the way the game builds it - the SHA-256 of the
+        // table, then zeros (memecrypto_sign adds its 8-byte check at the end). Checked against the user's Moon:
+        // the game's own signature decrypts to exactly that. PKSM-Core decrypted the old signature here instead,
+        // which left leftover memory in the middle (still valid, but not what the game writes).
+        u8 decryptedSignature[0x80] = {};
         std::copy(hash.begin(), hash.end(), decryptedSignature);
 
         memecrypto_sign(decryptedSignature, &data[memecryptoOffset], 0x80);

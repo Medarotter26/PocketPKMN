@@ -14,6 +14,7 @@
 #include "personal/personal.hpp"
 #include "pkx/PK2.hpp"
 #include "pkx/PK6.hpp"
+#include "pkx/PK7.hpp"
 #include "utils/DateTime.hpp"
 #include "utils/i18n.hpp"
 
@@ -37,31 +38,51 @@ namespace walkerbox
         const pksm::Stat kStats[6] = { pksm::Stat::HP, pksm::Stat::ATK, pksm::Stat::DEF, pksm::Stat::SPD,
             pksm::Stat::SPATK, pksm::Stat::SPDEF };
 
+        // Gen 6 (PK6) and, since v0.55, Gen 7 (PK7: same 232-byte layout for everything set here)
         bool buildGen6(const CatchTemplate& t, const CatchTrainer& tr, bool shiny, bool female, Rng& rng,
-            const Date& today, std::unique_ptr<pksm::PKX>& out, std::string& why)
+            const Date& today, std::unique_ptr<pksm::PKX>& out, std::string& why, bool gen7 = false)
         {
-            if (t.len != pksm::PK6::BOX_LENGTH)
+            if (t.len != (gen7 ? pksm::PK7::BOX_LENGTH : pksm::PK6::BOX_LENGTH))
             {
-                why = "template is not a Gen 6 Pokemon";
+                why = gen7 ? "template is not a Gen 7 Pokemon" : "template is not a Gen 6 Pokemon";
                 return false;
             }
             std::vector<u8> buf(t.data, t.data + t.len);
-            auto pk = pksm::PKX::getPKM(pksm::Generation::SIX, buf.data(), buf.size());
-            auto* p6 = pk && pk->generation() == pksm::Generation::SIX ? static_cast<pksm::PK6*>(pk.get()) : nullptr;
-            if (!p6)
+            pksm::Generation g = gen7 ? pksm::Generation::SEVEN : pksm::Generation::SIX;
+            auto pk = pksm::PKX::getPKM(g, buf.data(), buf.size());
+            auto* p6 = !gen7 && pk && pk->generation() == g ? static_cast<pksm::PK6*>(pk.get()) : nullptr;
+            auto* p7 = gen7 && pk && pk->generation() == g ? static_cast<pksm::PK7*>(pk.get()) : nullptr;
+            if (!p6 && !p7)
             {
                 why = "template cannot be read";
                 return false;
             }
+            // Gen 7 templates of a Gen 6 origin (the X/Y Ditto) list the Gen 7 player as handler under the template's
+            // trainer name "PLAYER": that becomes the player too (read before the OT name changes)
+            bool htIsPlayer = p7 && p7->htName() == "PLAYER";
             // the origin save's trainer (the template was made for "PLAYER" 12345/54321)
             pk->otName(tr.name);
             pk->TID(tr.tid);
             pk->SID(tr.sid);
             pk->otGender(tr.female ? pksm::Gender::Female : pksm::Gender::Male);
             pk->language(tr.language);
-            p6->country(tr.country);
-            p6->region(tr.subRegion);
-            p6->consoleRegion(tr.consoleRegion);
+            if (p6)
+            {
+                p6->country(tr.country);
+                p6->region(tr.subRegion);
+                p6->consoleRegion(tr.consoleRegion);
+            }
+            else
+            {
+                p7->country(tr.country);
+                p7->region(tr.subRegion);
+                p7->consoleRegion(tr.consoleRegion);
+                if (htIsPlayer)
+                {
+                    p7->htName(tr.name);
+                    p7->htGender(tr.female ? pksm::Gender::Female : pksm::Gender::Male);
+                }
+            }
             pk->nickname(i18n::species(tr.language, pk->species()));
             pk->nicknamed(false);
             // free in every Gen 6 origin: encryption constant, PID, nature, IVs (keeping guaranteed perfect ones)
@@ -91,7 +112,7 @@ namespace walkerbox
                 }
             }
             // gender (Gen 6 stores it apart from the PID): the walker's, if the species allows it
-            u8 ratio = pksm::PersonalXYORAS::gender(pk->formSpecies());
+            u8 ratio = gen7 ? pksm::PersonalSMUSUM::gender(pk->formSpecies()) : pksm::PersonalXYORAS::gender(pk->formSpecies());
             pk->gender(ratio == 255 ? pksm::Gender::Genderless : ratio == 254 ? pksm::Gender::Female
                        : ratio == 0 ? pksm::Gender::Male : female ? pksm::Gender::Female : pksm::Gender::Male);
             pk->metDate(today);
@@ -190,6 +211,8 @@ namespace walkerbox
         }
         if (t.gen == 6)
             return buildGen6(t, tr, shiny, female, rng, Date{(u8)day, (u8)month, (u32)year}, out, why);
+        if (t.gen == 7)
+            return buildGen6(t, tr, shiny, female, rng, Date{(u8)day, (u8)month, (u32)year}, out, why, true);
         if (t.gen == 2)
             return buildGen2(t, tr, shell, shiny, female, rng, out, why);
         why = "no catches for this generation yet";

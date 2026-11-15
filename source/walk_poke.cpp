@@ -169,7 +169,9 @@ namespace walkerbox
         out.friendship = gen == 1 ? 70 : pk.currentFriendship();
         // Sprite only (user 2026-11-15: Gen 1/2 Pokemon use the Gen 1/2 set; Unown by its letter). The summary
         // above is unchanged.
-        spriteFromPack = wbx_sprite_load_for(species, gen == 2 ? pk.alternativeForm() : 0, gen, out.sprite) == 1;
+        // v0.56: Gen 7 by its form too (Alolan sprites, romfs/sprites/forms)
+        spriteFromPack =
+            wbx_sprite_load_for(species, (gen == 2 || gen == 7) ? pk.alternativeForm() : 0, gen, out.sprite) == 1;
         return true;
     }
 }

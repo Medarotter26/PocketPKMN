@@ -79,8 +79,8 @@ namespace pksm
 
         auto hash = crypto::sha256({&data[checksumTableOffset], checksumTableLength});
 
-        u8 decryptedSignature[0x80];
-        reverseCrypt(&data[memecryptoOffset], decryptedSignature);
+        // PocketPKMN change (v0.56): built as the game builds it - SHA-256 of the table, then zeros (see SavSUMO.cpp)
+        u8 decryptedSignature[0x80] = {};
         std::copy(hash.begin(), hash.end(), decryptedSignature);
 
         memecrypto_sign(decryptedSignature, &data[memecryptoOffset], 0x80);

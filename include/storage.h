@@ -86,6 +86,7 @@ typedef struct storage_catch {
 	int species, level;
 	unsigned moves[4];
 	int female, shiny;
+	int form; // v0.55: the walker summary's form (variant low 5 bits when its "has form" flag is set), else 0
 } storage_catch;
 // Makes each catch a legal Pokemon of the walked Pokemon's game (PKHeX templates, walk_catch.cpp) for that save's
 // trainer and moves it into that game (first free box); one that cannot go in waits in the PocketPKMN box.

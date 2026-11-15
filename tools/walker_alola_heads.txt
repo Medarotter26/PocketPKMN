@@ -1,0 +1,12 @@
+# Alolan forms (walker_alola.py): face point "dex x y" in the mirrored picture trimmed to the
+# Pokemon (grid sheet art_src/alola/heads_grid.png); the 64x48 window is centred on it.
+# Only the 9 bigger than 64x48. 2026-11-15.
+26 32 24     # Raichu: face; tail tip and surfboard bottom lost
+28 40 24     # Sandslash: top spikes kept
+38 62 24     # Ninetales: head on the right
+53 48 24     # Persian: head on top right
+75 36 24     # Graveler: face in the middle (only width too big)
+76 42 36     # Golem: face low in the body (was 40; user: "Golem should move down a little")
+89 40 32     # Muk: mouth and eyes
+103 56 32    # Exeggutor: the three heads (the trunk and tail head are lost)
+105 38 40    # Marowak: skull face (the flames on top lost)

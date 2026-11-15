@@ -2354,6 +2354,959 @@ GSC1 = {"refreshing_field": refreshing_field, "rugged_road": rugged_road, "ranch
 COURSES.update(GSC1)
 
 
+# --- Sun / Moon courses, set 1 (2026-11-15, user: "Yes, draw them"): 14 pictures for the Gen 7 courses that had
+# stand-ins. Same house style: light sky, one horizon, solid dark shapes with light-grey highlights, ONE big subject.
+FONT3.update({"M": ["#.#", "###", "###", "#.#", "#.#"], "L": ["#..", "#..", "#..", "#..", "###"]})
+
+
+def palm(c, x, ground, h, lean=1):
+    """Palm tree: a thin curving black trunk with ring marks, a crown of drooping fronds, two coconuts."""
+    pts = []
+    for i in range(h):
+        y = ground - 1 - i
+        bend = int(round(lean * (i / h) ** 2 * 3))
+        c.set(x + bend, y, 3)
+        if i % 3 == 1:
+            c.set(x + bend + 1, y, 2)
+        pts.append((x + bend, y))
+    tx, ty = pts[-1]
+    for dx, dy, ln in ((-5, 2, 5), (5, 2, 5), (-4, -1, 4), (4, -1, 4), (-2, 3, 3), (2, 3, 3)):
+        for k in range(1, ln + 1):                      # fronds arc out and droop at the tips
+            fx = tx + dx * k / ln
+            fy = ty - 1 + dy * (k / ln) ** 2 - (1 if 1 < k < ln - 1 else 0) * (dy < 0)
+            c.set(fx, fy, 3)
+            if k < ln - 1:
+                c.set(fx, fy + 1, 2)
+    c.set(tx - 1, ty + 1, 3)
+    c.set(tx + 1, ty + 1, 3)
+
+
+def boardwalk():
+    """Boardwalk: a wooden pier running straight out to sea in perspective (light planks, black edges, posts),
+    calm sea to the horizon, a low sun, a palm tree on the sandy shore at the left, two gulls."""
+    c = C(0)
+    c.rect(0, 9, W - 1, 9, 2)                                      # sea horizon
+    c.rect(0, 10, W - 1, H - 1, 1)
+    for y, xs in ((11, (2, 26)), (13, (24,)), (16, (27,)), (19, (25,)), (14, (3,))):
+        for x in xs:
+            c.rect(x, y, x + 2, y, 0)                              # ripples
+    c.disc(25, 5, 2.3, 1)                                         # sun just above the sea
+    c.rect(23, 9, 27, 9, 2)
+    # the pier: wide at the bottom, narrow at the far end
+    c.poly([(9, 24), (22, 24), (17.5, 10), (14.5, 10)], 0)
+    c.line(9, 23, 14.5, 10, 3)
+    c.line(22, 23, 17, 10, 3)
+    c.rect(14, 10, 17, 10, 3)
+    for y in (12, 14, 17, 20, 23):                                 # plank joins, further apart nearer
+        t = (y - 10) / 14.0
+        x0, x1 = 14.5 - 5.5 * t, 17.5 + 4.5 * t
+        c.rect(int(x0) + 1, y, int(x1) - 1, y, 2)
+    for y, h in ((11, 1), (14, 2), (18, 2), (22, 3)):             # posts along both edges
+        t = (y - 10) / 14.0
+        for x in (14.5 - 5.5 * t, 17.5 + 4.5 * t):
+            c.rect(int(round(x)), y - h, int(round(x)), y, 3)
+    # sandy shore with a palm
+    c.poly([(0, 15), (5, 17), (8, 24), (0, 24)], 0)
+    c.line(0, 15, 5, 17, 2)
+    c.line(5, 17, 8, 24, 2)
+    palm(c, 3, 21, 13, lean=1)
+    gsc_bird(c, 9, 3)
+    gsc_bird(c, 15, 5)
+    return c
+
+
+def lamp_post(c, x, top, ground):
+    c.rect(x, top + 2, x, ground - 1, 3)
+    c.rect(x - 1, top, x + 1, top + 1, 3)
+    c.set(x, top + 1, 0)
+    c.rect(x - 1, ground - 1, x + 1, ground - 1, 3)
+
+
+def city_square():
+    """City square: a tiered fountain in the middle of a paved plaza with water arcing down, a lamp post either
+    side, low town buildings along the back."""
+    c = C(0)
+    for x0, x1, top in ((0, 7, 6), (8, 13, 8), (18, 24, 7), (25, 31, 5)):   # buildings at the back
+        c.rect(x0, top, x1, 13, 1)
+        c.rect(x0, top, x1, top, 2)
+        for wy in range(top + 2, 12, 3):
+            for wx in range(x0 + 1, x1, 3):
+                c.set(wx, wy, 0)
+                c.set(wx + 1, wy, 0)
+    c.rect(0, 14, W - 1, 14, 2)                                    # plaza edge
+    for y in range(15, H):                                         # paving joints in perspective
+        if y % 3 == 0:
+            c.rect(0, y, W - 1, y, 1)
+    for x in range(-8, 41, 6):
+        c.line(16 + (x - 16) * 0.25, 15, x, 23, 1)
+    # fountain: wide basin, pedestal, upper bowl, water arcs, spray
+    c.rect(7, 18, 24, 20, 2)
+    c.rect(7, 17, 24, 17, 3)
+    c.rect(7, 21, 24, 21, 3)
+    c.rect(8, 18, 23, 18, 1)                                       # water surface in the basin
+    c.rect(15, 11, 16, 16, 3)
+    c.rect(11, 10, 20, 10, 3)
+    c.rect(12, 11, 19, 11, 2)
+    for side in (-1, 1):
+        for k in range(6):                                         # arcs of water falling to the basin
+            x = 15.5 + side * (5 + k * 0.6)
+            y = 10 + k * 1.2 + (k * k) * 0.1
+            c.set(x, y, 1)
+    for x, y in ((15, 7), (16, 6), (14, 8), (17, 8), (15, 9), (16, 9)):
+        c.set(x, y, 1)                                             # spray rising from the top
+    lamp_post(c, 3, 9, 23)
+    lamp_post(c, 28, 9, 23)
+    return c
+
+
+def shopping_plaza():
+    """Shopping plaza: a big mall front with a black sign saying MALL, a glass entrance in the middle, rows of shop
+    windows, small potted trees, a paved forecourt."""
+    c = C(0)
+    c.rect(1, 6, 30, 17, 1)                                        # the building
+    c.rect(1, 6, 30, 6, 3)
+    c.rect(1, 6, 1, 17, 3)
+    c.rect(30, 6, 30, 17, 3)
+    c.rect(7, 0, 24, 5, 3)                                         # sign
+    text3(c, 8, 0, "MALL", 0)
+    c.rect(11, 5, 20, 5, 3)
+    for x in range(3, 29, 4):                                      # upper windows
+        if 11 <= x <= 19:
+            continue
+        c.rect(x, 8, x + 2, 10, 0)
+        c.rect(x, 10, x + 2, 10, 2)
+    c.rect(11, 9, 20, 17, 2)                                       # glass entrance
+    c.rect(11, 9, 20, 9, 3)
+    for x in (13, 15, 16, 18):
+        c.rect(x, 10, x, 17, 0 if x in (13, 18) else 3)
+    c.rect(12, 11, 12, 13, 1)                                      # glints on the glass
+    c.rect(19, 11, 19, 12, 1)
+    for x in range(3, 10, 3):                                      # shop windows, ground floor
+        c.rect(x, 13, x + 1, 16, 0)
+    for x in range(22, 29, 3):
+        c.rect(x, 13, x + 1, 16, 0)
+    c.rect(0, 18, W - 1, 18, 2)
+    c.rect(0, 19, W - 1, H - 1, 0)
+    for y in (20, 23):
+        c.rect(0, y, W - 1, y, 1)
+    for x in (4, 27):                                              # potted trees on the forecourt
+        c.rect(x - 1, 20, x + 1, 22, 3)
+        c.rect(x, 17, x, 19, 3)
+        c.disc(x, 15, 2, 2)
+        c.set(x - 1, 14, 1)
+    return c
+
+
+def seaside_cliff():
+    """Seaside cliff: a tall rock cliff on the left with grass on top and layered strata, the sea to a far horizon,
+    big white waves breaking at the foot of the cliff, gulls."""
+    c = C(0)
+    c.rect(0, 9, W - 1, 9, 2)
+    c.rect(0, 10, W - 1, H - 1, 1)
+    for y, xs in ((12, (24,)), (15, (28,)), (19, (26,)), (22, (21, 29))):
+        for x in xs:
+            c.rect(x, y, x + 2, y, 0)
+    cliff = [(0, 3), (9, 3), (12, 5), (13, 9), (15, 12), (15, 16), (17, 20), (18, 24), (0, 24)]
+    c.poly(cliff, 2)
+    for i in range(len(cliff) - 2):                                # black outline down the face
+        (xa, ya), (xb, yb) = cliff[i], cliff[i + 1]
+        c.line(xa, ya, xb, yb, 3)
+    for y, x1 in ((8, 12), (12, 14), (16, 15), (20, 17)):         # strata
+        c.line(0, y + 1, x1, y, 3)
+    c.rect(0, 2, 9, 2, 1)                                          # grass on top
+    for x in (2, 5, 8):
+        c.set(x, 1, 2)
+    c.rect(1, 5, 4, 5, 1)                                          # light catching the face
+    c.rect(3, 10, 7, 10, 1)
+    # waves breaking against the foot
+    for cx, cy, r in ((19, 17, 2.4), (22, 19, 2.0), (17, 21, 2.2), (24, 22, 1.6)):
+        c.disc(cx, cy, r, 0)
+    for x, y in ((18, 14), (20, 13), (21, 15), (23, 16), (25, 19)):
+        c.set(x, y, 0)                                             # spray
+    c.line(20, 20, 27, 20, 3)                                      # curl of the wave
+    c.line(27, 20, 29, 18, 3)
+    gsc_bird(c, 22, 4)
+    gsc_bird(c, 28, 6)
+    return c
+
+
+def clear_lake():
+    """Clear lake: soft hills far away mirrored in a still lake, a few ripple lines, lily pads with flowers, tall
+    reeds with cattail heads framing both sides of the near shore."""
+    c = C(0)
+    far_hills(c, 6, 1.6, 3.2, 0.5)
+    c.rect(0, 10, W - 1, 10, 2)                                    # far shore
+    c.rect(0, 11, W - 1, 20, 0)                                    # the lake
+    for x in range(W):                                             # the hills' reflection
+        top = int(round(6 + 1.6 * math.sin(x / 3.2 + 0.5)))
+        for y in range(11, 11 + (10 - top) // 2 + 1):
+            if (x + y) % 2 == 0:
+                c.set(x, y, 1)
+    for y, x0, x1 in ((15, 9, 14), (17, 18, 24), (19, 6, 10)):
+        c.rect(x0, y, x1, y, 1)
+    for cx, cy in ((13, 18), (21, 15), (25, 19)):                   # lily pads
+        c.rect(cx - 2, cy, cx + 2, cy, 2)
+        c.rect(cx - 1, cy - 1, cx + 1, cy - 1, 2)
+        c.set(cx, cy - 1, 0)
+        c.set(cx - 2, cy, 3)
+    c.set(21, 13, 0)                                               # a flower on one pad
+    c.rect(20, 14, 22, 14, 0)
+    c.set(21, 14, 3)
+    c.rect(0, 21, W - 1, 21, 2)
+    c.rect(0, 22, W - 1, H - 1, 1)
+    for x, top in ((1, 8), (3, 11), (5, 13), (27, 12), (29, 9), (31, 11)):   # reeds
+        c.rect(x, top, x, 23, 3)
+        c.rect(x, top + 1, x, top + 3, 2)
+        c.rect(x - 1, top + 1, x - 1, top + 3, 3)
+    return c
+
+
+def volcanic_trail():
+    """Volcanic trail: a big volcano filling the middle, a crater rim with smoke billowing out, bright lava running
+    down its slopes, a rocky trail winding up to it with boulders."""
+    c = C(0)
+    for cx, cy, r in ((17, 4, 2.0), (20, 2, 2.4), (24, 1, 2.0), (14, 3, 1.5)):
+        c.disc(cx, cy, r, 1)                                       # smoke
+    c.poly([(1, 20), (12, 7), (20, 7), (31, 20)], 2)              # the cone
+    c.line(1, 20, 12, 7, 3)
+    c.line(20, 7, 31, 20, 3)
+    c.rect(12, 6, 20, 6, 3)                                        # crater rim
+    c.rect(13, 7, 19, 7, 3)
+    for path in (((15, 8), (14, 11), (12, 14), (11, 18)), ((17, 8), (18, 12), (21, 15), (22, 19))):
+        for (xa, ya), (xb, yb) in zip(path, path[1:]):              # lava streams
+            c.line(xa, ya, xb, yb, 0)
+    c.line(16, 8, 16, 10, 0)
+    for x, y in ((7, 15), (25, 16), (9, 12), (23, 12)):            # dark rock texture on the slopes
+        c.rect(x, y, x + 1, y, 3)
+    c.rect(0, 20, W - 1, 20, 3)
+    c.rect(0, 21, W - 1, H - 1, 2)
+    c.poly([(12, 24), (20, 24), (17, 21), (15, 21)], 1)            # the trail
+    boulder(c, 5, 24, 2)
+    boulder(c, 27, 23, 2)
+    return c
+
+
+def vanished_woods():
+    """Vanished Woods: a jungle - big tropical leaves (split, with veins) framing the picture from both sides,
+    vines hanging from the top, tall trunks behind, light falling in shafts onto a path into the trees."""
+    c = C(0)
+    for x in (9, 14, 19, 24):                                      # trunks behind
+        c.rect(x, 0, x + 1, 17, 1)
+    for i in range(0, 32, 2):                                      # light shafts (dithered, diagonal)
+        c.line(10 + i * 0.4, 0, 14 + i * 0.4, 17, 0)
+    c.rect(0, 17, W - 1, 17, 2)
+    c.rect(0, 18, W - 1, H - 1, 2)
+    c.poly([(13, 24), (19, 24), (17, 18), (15, 18)], 1)            # path
+    for x, ln in ((11, 6), (16, 4), (22, 7)):                       # vines
+        for y in range(ln):
+            c.set(x + (y % 3 == 2), y, 3)
+        c.set(x - 1, ln - 1, 2)
+    def leaf(cx, cy, dx, dy, ln, wd):
+        for k in range(ln):
+            t = k / ln
+            mx, my = cx + dx * k, cy + dy * k
+            half = int(round(wd * math.sin(math.pi * min(1, t * 1.15))))
+            for s in range(-half, half + 1):
+                c.set(mx - dy * s, my + dx * s, 3)
+        for k in range(1, ln - 1):                                 # the midrib
+            c.set(cx + dx * k, cy + dy * k, 2)
+        for k in range(2, ln - 1, 2):                              # splits in the leaf edge
+            c.set(cx + dx * k - dy * wd, cy + dy * k + dx * wd, 0)
+    leaf(0, 4, 0.9, 0.45, 10, 3)
+    leaf(0, 14, 0.85, -0.5, 9, 3)
+    leaf(31, 3, -0.9, 0.45, 10, 3)
+    leaf(31, 14, -0.85, -0.45, 9, 3)
+    leaf(4, 23, 0.4, -0.9, 7, 2)
+    leaf(27, 23, -0.4, -0.9, 7, 2)
+    return c
+
+
+def gemstone_cavern():
+    """Gemstone Cavern: a dark cave, rough rock walls and stalactites, a cluster of big glittering crystals growing
+    from the floor in the middle with sparkles round them."""
+    c = C(3)
+    c.poly([(2, 24), (3, 7), (9, 2), (23, 2), (29, 7), (30, 24)], 2)      # the chamber
+    for x, ln, w in ((7, 4, 1), (12, 3, 1), (20, 5, 1), (25, 3, 1)):
+        spike(c, x, 2, ln, w, down=True, v=3)                      # stalactites
+    for x, y in ((5, 12), (26, 10), (6, 18), (27, 17)):            # rock texture
+        c.rect(x, y, x + 1, y, 3)
+    c.rect(0, 21, W - 1, H - 1, 3)                                 # floor
+    c.rect(3, 21, 28, 21, 2)
+    gem(c, 16, 22, 3, 13)                                          # the crystals
+    gem(c, 11, 22, 2, 8)
+    gem(c, 21, 22, 2, 9)
+    gem(c, 7, 22, 1, 5)
+    gem(c, 25, 22, 1, 5)
+    for cx, cy in ((9, 9), (23, 8), (16, 6)):                      # sparkles
+        c.set(cx, cy, 0)
+        c.set(cx - 1, cy, 1)
+        c.set(cx + 1, cy, 1)
+        c.set(cx, cy - 1, 1)
+        c.set(cx, cy + 1, 1)
+    return c
+
+
+def rural_station():
+    """Rural station: a small station building with a deep platform roof on the left, railway tracks running into
+    the distance across open country, telegraph poles along the line, low hills."""
+    c = C(0)
+    far_hills(c, 9, 1.0, 4.0, 1.0)
+    c.rect(0, 11, W - 1, 11, 2)
+    c.rect(0, 12, W - 1, H - 1, 1)
+    # tracks to a vanishing point at (21, 11)
+    c.line(14, 24, 20.5, 11, 3)
+    c.line(30, 24, 21.5, 11, 3)
+    for y in (12, 13, 15, 17, 20, 23):                             # sleepers
+        t = (y - 11) / 13.0
+        c.rect(int(20.5 - 7 * t) - 1, y, int(21.5 + 9 * t) + 1, y, 2)
+    c.line(14, 24, 20.5, 11, 3)
+    c.line(30, 24, 21.5, 11, 3)
+    for x, top in ((27, 4), (23, 8), (21, 9)):                     # telegraph poles, smaller further away
+        c.rect(x, top, x, 11, 3)
+        c.rect(x - 1, top + 1, x + 1, top + 1, 3)
+    c.line(27, 5, 23, 9, 2)
+    # station: platform roof on posts, the building under it, the platform
+    c.rect(0, 5, 11, 6, 3)
+    c.rect(0, 7, 11, 7, 2)
+    c.rect(0, 8, 8, 15, 1)
+    c.rect(0, 8, 8, 8, 3)
+    c.rect(2, 10, 4, 12, 0)                                        # window
+    c.rect(6, 11, 7, 15, 3)                                        # door
+    c.rect(10, 7, 10, 16, 3)                                       # roof post
+    c.rect(4, 2, 7, 4, 3)                                          # clock on the roof
+    c.set(5, 3, 0)
+    c.rect(0, 16, 13, 17, 0)                                       # platform
+    c.rect(0, 16, 13, 16, 3)
+    c.rect(0, 18, 12, 18, 2)
+    return c
+
+
+def illusionary_manor():
+    """Illusionary manor: night - a dark dithered sky with a big white moon, a black haunted mansion with two pointed
+    towers, a few dimly lit and broken windows, a crooked fence and a bare tree in front."""
+    c = C(0)
+    c.dither(0, 0, W - 1, 19, 1, 2, 0.5)                           # night sky
+    c.disc(25, 5, 3.4, 0)                                          # moon
+    c.set(24, 4, 1)
+    c.set(26, 6, 1)
+    # the manor
+    c.rect(7, 9, 24, 19, 3)
+    for tx in (8, 21):                                             # towers with pointed roofs
+        c.rect(tx, 5, tx + 3, 19, 3)
+        for i in range(4):
+            c.rect(tx + 1 - (i > 1), 4 - i + (i > 1), tx + 2 + (i > 1), 4 - i + (i > 1), 3)
+        c.set(tx + 1, 0, 3)
+    c.poly([(11, 9), (15.5, 4), (20, 9)], 3)                       # main gable
+    for wx, wy, lit in ((9, 8, 1), (22, 8, 0), (12, 11, 1), (18, 11, 2), (12, 15, 2), (18, 15, 1), (15, 7, 1)):
+        c.rect(wx, wy, wx + 1, wy + 1, lit)                        # windows: lit, dark, broken
+    c.set(18, 11, 1)
+    c.rect(15, 14, 16, 19, 1)                                      # door
+    c.rect(0, 20, W - 1, H - 1, 3)
+    c.rect(0, 20, W - 1, 20, 2)
+    for x in range(1, 31, 3):                                      # crooked fence
+        c.rect(x, 18 + (x % 2), x, 21, 3)
+    c.rect(0, 19, W - 1, 19, 3)
+    gnarled_tree(c, 3, 21, 12, lean=1)
+    return c
+
+
+def sunbaked_desert():
+    """Sunbaked desert: a big sun with rays, rolling sand dunes in layers (lit faces light, shaded faces darker,
+    wind ripples), a tall cactus in front."""
+    c = C(0)
+    c.disc(7, 5, 3, 1)                                             # sun
+    for dx, dy in ((0, -5), (0, 5), (-5, 0), (5, 0), (-4, -4), (4, -4), (-4, 4), (4, 4)):
+        c.set(7 + dx, 5 + dy, 1)
+    c.ground(lambda x: 11 + 2.2 * math.sin(x / 4.5 + 2.0), 1)       # far dunes
+    c.ground(lambda x: 15 + 2.6 * math.sin(x / 5.5 + 0.3), 0)       # middle dune, lit
+    for x in range(W):                                             # its shaded side
+        crest = 15 + 2.6 * math.sin(x / 5.5 + 0.3)
+        if math.cos(x / 5.5 + 0.3) < -0.2:
+            c.rect(x, int(crest) + 1, x, int(crest) + 3, 1)
+    for x in range(W):
+        y = int(15 + 2.6 * math.sin(x / 5.5 + 0.3))
+        c.set(x, y, 2)                                             # crest line
+    c.ground(lambda x: 20 + 1.4 * math.sin(x / 6.0 + 4.0), 1)       # near sand
+    for y, x0, x1 in ((22, 3, 8), (23, 12, 18), (21, 20, 24)):
+        c.rect(x0, y, x1, y, 2)                                    # wind ripples
+    # cactus
+    c.rect(23, 7, 25, 21, 3)
+    c.rect(24, 8, 24, 20, 2)
+    c.rect(20, 11, 22, 12, 3)
+    c.rect(20, 8, 21, 12, 3)
+    c.rect(26, 13, 28, 14, 3)
+    c.rect(27, 10, 28, 14, 3)
+    return c
+
+
+def coral_reef():
+    """Coral reef, underwater: the surface far above with light rays slanting down, deepening water, branching and
+    round corals on a sandy floor, a striped fish, bubbles rising."""
+    c = C(1)
+    c.rect(0, 0, W - 1, 1, 0)                                      # the surface, bright
+    for x in range(0, W, 4):
+        c.set(x + 1, 2, 0)
+    for x0 in (4, 13, 22):                                         # light rays
+        c.line(x0, 2, x0 + 5, 16, 0)
+    c.dither(0, 14, W - 1, 20, 1, 2, 0.35)                         # deeper water
+    c.rect(0, 21, W - 1, H - 1, 0)                                 # sand
+    c.rect(0, 21, W - 1, 21, 2)
+    def branch(x, ground, h, side):
+        c.rect(x, ground - h, x, ground - 1, 3)
+        for k, (bx, by) in enumerate(((x - 2, ground - h + 2), (x + 2, ground - h + 1), (x - 3, ground - h + 5))):
+            c.line(x, by + 2, bx, by, 3)
+            c.set(bx, by - 1, 3)
+    branch(5, 22, 9, 1)
+    branch(26, 22, 11, -1)
+    c.disc(12, 20, 3, 2)                                           # brain coral
+    c.line(10, 19, 14, 20, 3)
+    c.line(10, 21, 14, 21, 3)
+    c.disc(20, 21, 2, 3)                                           # round coral
+    c.set(19, 20, 2)
+    # fish: body, tail, eye, stripes
+    c.poly([(13, 9), (17, 7), (21, 9), (17, 11)], 3)
+    c.poly([(21, 9), (24, 7), (24, 11)], 3)
+    c.set(15, 8, 0)
+    c.rect(17, 8, 17, 10, 0)
+    c.rect(19, 8, 19, 10, 0)
+    for x, y in ((9, 6), (10, 4), (9, 2), (28, 9), (27, 6)):       # bubbles
+        c.set(x, y, 0)
+    return c
+
+
+def snowy_summit():
+    """Snowy summit: one big mountain peak filling the picture, a thick snow cap with a jagged lower edge, a lit
+    left face and a shadowed right face, snow falling, small snowy pines at its foot."""
+    c = C(0)
+    c.poly([(0, 21), (16, 2), (31, 21)], 2)                        # the peak
+    for y in range(2, 21):                                         # shadowed right face
+        half = (y - 2) * 16 / 19.0
+        c.rect(int(16 + half * 0.15), y, int(16 + half), y, 3)
+    snow_line = [(16 - (y - 2) * 0.84, y) for y in range(2, 12)]
+    for y in range(2, 12):                                         # snow cap, jagged at the bottom
+        half = (y - 2) * 16 / 19.0
+        jag = 0 if y < 9 else (1 if (y % 2) else 0)
+        c.rect(int(16 - half), y, int(16 + half * 0.15) - jag, y, 0)
+        c.rect(int(16 + half * 0.15), y, int(16 + half * 0.5) - jag, y, 1)
+    c.line(0, 21, 16, 2, 3)
+    c.line(16, 2, 31, 21, 3)
+    for x, y in ((7, 13), (10, 15), (12, 12)):                      # snow patches lower down
+        c.rect(x, y, x + 1, y, 0)
+    c.rect(0, 20, W - 1, H - 1, 0)                                 # snowy ground
+    c.rect(0, 20, W - 1, 20, 2)
+    for x, h in ((3, 7), (28, 8), (24, 5)):
+        pine2(c, x, 22, h, snow=True)
+    for x, y in ((3, 3), (8, 6), (25, 2), (29, 6), (21, 8), (5, 10)):
+        c.set(x, y, 1)                                             # falling snow
+    return c
+
+
+def dragon_hollow():
+    """Dragon Hollow: a deep canyon - tall layered rock walls on both sides - and a big dragon flying through the gap
+    in the sky, wings spread; a rocky floor below."""
+    c = C(0)
+    c.poly([(0, 0), (8, 0), (10, 6), (9, 12), (12, 18), (12, 24), (0, 24)], 2)     # left wall
+    c.poly([(31, 0), (24, 0), (22, 5), (24, 11), (21, 18), (21, 24), (31, 24)], 2)  # right wall
+    for y in (4, 9, 14, 19):                                       # strata
+        c.line(0, y, 10, y + 1, 3)
+        c.line(22, y + 1, 31, y, 3)
+    c.line(8, 0, 10, 6, 3)
+    c.line(10, 6, 9, 12, 3)
+    c.line(9, 12, 12, 18, 3)
+    c.line(24, 0, 22, 5, 3)
+    c.line(22, 5, 24, 11, 3)
+    c.line(24, 11, 21, 18, 3)
+    c.rect(2, 2, 5, 2, 1)
+    c.rect(26, 7, 29, 7, 1)
+    c.rect(12, 18, 21, 18, 3)                                      # canyon floor
+    c.rect(12, 19, 21, H - 1, 1)
+    boulder(c, 16, 23, 2)
+    # dragon: body, neck and head to the left, tail to the right, two big wings up
+    c.line(13, 10, 19, 10, 3)
+    c.line(12, 9, 13, 10, 3)
+    c.rect(11, 8, 12, 9, 3)                                        # head
+    c.set(10, 9, 3)
+    c.line(19, 10, 22, 12, 3)                                      # tail
+    c.set(23, 12, 3)
+    c.poly([(14, 10), (11, 3), (13, 4), (15, 3), (17, 9)], 3)      # wing (near)
+    c.poly([(16, 10), (19, 4), (20, 6), (22, 5), (19, 10)], 3)     # wing (far)
+    c.line(13, 4, 15.5, 9, 2)                                      # wing bones
+    c.line(20, 6, 18, 10, 2)
+    c.set(11, 8, 0)                                                # eye
+    return c
+
+
+SM1 = {"boardwalk": boardwalk, "city_square": city_square, "shopping_plaza": shopping_plaza,
+       "seaside_cliff": seaside_cliff, "clear_lake": clear_lake, "volcanic_trail": volcanic_trail,
+       "vanished_woods": vanished_woods, "gemstone_cavern": gemstone_cavern, "rural_station": rural_station,
+       "illusionary_manor": illusionary_manor, "sunbaked_desert": sunbaked_desert, "coral_reef": coral_reef,
+       "snowy_summit": snowy_summit, "dragon_hollow": dragon_hollow}
+COURSES.update(SM1)
+
+
+# --- Sun / Moon round 2 (own review of round 1: MALL read "HALL", pier and tracks looked alike, the fountain read as
+# a bench, jungle leaves were blobs, the summit read as a tent, the dragon was a blob, the fish was unclear)
+
+def big_m(c, x, y, v):
+    for r, row in enumerate(["#...#", "##.##", "#.#.#", "#...#", "#...#"]):
+        for k, p in enumerate(row):
+            if p == "#":
+                c.set(x + k, y + r, v)
+
+
+def shopping_plaza2():
+    c = shopping_plaza()
+    c.rect(5, 0, 26, 5, 3)                                         # wider sign, 5-pixel M
+    big_m(c, 7, 0, 0)
+    text3(c, 13, 0, "ALL", 0)
+    return c
+
+
+def boardwalk2():
+    """Boardwalk, side view: a long wooden walkway on stilts over the water with a railing, a small hut at its far
+    end, the beach at the left with a palm tree, the sun low over the sea, gulls."""
+    c = C(0)
+    c.rect(0, 10, W - 1, 10, 2)                                    # sea horizon
+    c.rect(0, 11, W - 1, H - 1, 1)
+    c.disc(24, 6, 2.5, 1)
+    c.rect(21, 10, 27, 10, 2)
+    for y, xs in ((13, (20, 27)), (20, (14, 24)), (23, (9, 19, 29))):
+        for x in xs:
+            c.rect(x, y, x + 2, y, 0)
+    c.poly([(0, 14), (7, 16), (11, 24), (0, 24)], 0)               # beach
+    c.line(0, 14, 7, 16, 2)
+    c.line(7, 16, 11, 24, 2)
+    # walkway: deck, railing, stilts
+    c.rect(6, 15, 31, 15, 3)
+    c.rect(6, 16, 31, 16, 0)
+    c.rect(6, 17, 31, 17, 3)
+    for x in range(9, 32, 2):
+        c.set(x, 16, 2)                                            # plank ends
+    c.rect(6, 12, 31, 12, 3)                                       # hand rail
+    for x in range(7, 32, 4):
+        c.rect(x, 13, x, 14, 3)
+        c.rect(x, 18, x, 22, 3)                                    # stilts into the water
+        c.rect(x - 1, 22, x + 1, 22, 0)
+    c.rect(24, 6, 30, 11, 1)                                       # hut at the end
+    c.rect(24, 11, 30, 11, 3)
+    c.poly([(23, 7), (27, 3), (31, 7)], 3)
+    c.rect(26, 8, 27, 10, 3)
+    palm(c, 3, 15, 12, lean=1)
+    gsc_bird(c, 11, 4)
+    gsc_bird(c, 17, 6)
+    return c
+
+
+def city_square2():
+    """City square: a big round fountain in front of the town hall - white jets of water against the grey building,
+    a wide stone basin, lamp posts either side, a paved plaza."""
+    c = C(0)
+    c.rect(4, 3, 27, 15, 1)                                        # the building behind
+    c.poly([(3, 4), (15.5, 0), (28, 4)], 2)
+    c.line(3, 4, 15.5, 0, 3)
+    c.line(15.5, 0, 28, 4, 3)
+    for x in range(6, 26, 4):
+        c.rect(x, 6, x + 1, 9, 2)
+    c.rect(0, 15, W - 1, 15, 2)
+    c.rect(0, 16, W - 1, H - 1, 0)
+    for y in (18, 21):
+        c.rect(0, y, W - 1, y, 1)
+    # fountain
+    c.rect(6, 17, 25, 21, 3)                                       # basin wall
+    c.rect(7, 17, 24, 18, 1)                                       # water in it
+    c.rect(7, 20, 24, 20, 2)
+    c.rect(15, 9, 16, 17, 3)                                       # column
+    c.rect(11, 9, 20, 9, 3)                                        # upper bowl
+    c.rect(12, 10, 19, 10, 3)
+    for side in (-1, 1):                                           # white jets falling into the basin
+        for k in range(7):
+            c.set(15.5 + side * (5.5 + k * 0.5), 9 + k * 1.2, 0)
+            c.set(15.5 + side * (6.5 + k * 0.5), 9 + k * 1.2, 0)
+    for x, y in ((15, 6), (16, 5), (14, 7), (17, 7), (15, 8), (16, 8)):
+        c.set(x, y, 0)                                             # top spray
+    lamp_post(c, 2, 8, 23)
+    lamp_post(c, 29, 8, 23)
+    return c
+
+
+def vanished_woods2():
+    """Vanished Woods: deep jungle - a dark leafy canopy across the top, two thick trunks with buttress roots framing
+    the picture, long vines with leaves hanging down, ferns at the bottom, a light clearing in the middle."""
+    c = C(0)
+    c.rect(0, 0, W - 1, 3, 3)                                      # canopy
+    for x in range(0, W, 3):
+        c.rect(x, 4, x + 1, 4 + (x * 7) % 3, 3)
+    for x in range(1, W, 3):
+        c.set(x, 3, 2)
+    for x0 in (11, 19):                                            # far trunks
+        c.rect(x0, 4, x0 + 1, 17, 1)
+    for x0, s in ((2, 1), (27, -1)):                               # big trunks with buttress roots
+        c.rect(x0, 4, x0 + 2, 19, 3)
+        c.rect(x0 + 1, 6, x0 + 1, 16, 2)
+        c.line(x0 + (3 if s > 0 else -1), 15, x0 + (6 if s > 0 else -4), 19, 3)
+        c.line(x0 + (1 if s > 0 else 1), 16, x0 + (-1 if s > 0 else 3), 19, 3)
+    for x, ln in ((8, 9), (14, 6), (22, 10), (17, 4)):              # vines with leaves
+        c.rect(x, 4, x, 4 + ln, 3)
+        for y in range(6, 4 + ln, 3):
+            c.set(x - 1, y, 2)
+            c.set(x + 1, y + 1, 2)
+    c.rect(0, 19, W - 1, 19, 2)
+    c.rect(0, 20, W - 1, H - 1, 1)
+    c.poly([(13, 24), (19, 24), (17, 19), (15, 19)], 0)            # path into the clearing
+    for fx, fs in ((6, 1), (24, -1), (10, 1), (21, -1)):           # ferns: arching fronds
+        for k in range(5):
+            c.set(fx + fs * k, 22 - (k if k < 3 else 5 - k), 3)
+            c.set(fx + fs * k, 23 - (k if k < 3 else 5 - k), 2)
+    return c
+
+
+def rural_station2():
+    """Rural station: railway tracks running straight to the horizon through open fields, a small station house with
+    a pitched roof and its platform beside the line, a station sign, telegraph poles getting smaller."""
+    c = C(0)
+    far_hills(c, 9, 1.0, 4.5, 2.0)
+    c.rect(0, 11, W - 1, 11, 2)
+    c.rect(0, 12, W - 1, H - 1, 1)
+    vx = 20                                                        # vanishing point
+    for y in range(12, H):                                         # gravel bed
+        t = (y - 11) / 12.0
+        c.rect(int(vx - 1 - 9 * t), y, int(vx + 1 + 9 * t), y, 0)
+    for y in (13, 15, 18, 22):                                     # sleepers
+        t = (y - 11) / 12.0
+        c.rect(int(vx - 7 * t), y, int(vx + 7 * t), y, 2)
+    c.line(vx - 0.5, 11, vx - 7, 23, 3)                            # rails
+    c.line(vx + 0.5, 11, vx + 7, 23, 3)
+    for x, top in ((30, 3), (26, 7), (24, 9)):                     # telegraph poles
+        c.rect(x, top, x, 11 + (x - 24) // 2, 3)
+        c.rect(x - 1, top + 1, x + 1, top + 1, 3)
+    c.line(30, 4, 26, 8, 2)
+    c.line(26, 8, 24, 10, 2)
+    # station house and platform on the left
+    c.poly([(0, 7), (5, 3), (10, 7)], 3)
+    c.rect(1, 7, 9, 14, 0)
+    c.rect(1, 7, 1, 14, 3)
+    c.rect(9, 7, 9, 14, 3)
+    c.rect(3, 9, 4, 11, 2)
+    c.rect(6, 10, 7, 14, 3)
+    c.rect(0, 15, 11, 16, 0)                                       # platform
+    c.rect(0, 15, 11, 15, 3)
+    c.rect(0, 17, 11, 17, 2)
+    c.rect(12, 9, 12, 15, 3)                                       # station sign
+    c.rect(11, 8, 15, 10, 3)
+    c.rect(12, 9, 14, 9, 0)
+    return c
+
+
+def snowy_summit2():
+    """Snowy summit: one big mountain - dark rock with a black shadow side, a thick white snow cap with a jagged
+    edge, outlined against the sky - a smaller grey peak behind, snow falling, snowy pines at its foot."""
+    c = C(0)
+    c.poly([(16, 21), (25, 7), (32, 15), (32, 21)], 1)             # peak behind
+    c.poly([(0, 21), (13, 2), (28, 21)], 2)                        # the big peak
+    c.poly([(13, 2), (28, 21), (17, 21)], 3)                       # shadow side
+    c.poly([(13, 2), (7, 10), (9, 9), (10, 11), (12, 9), (14, 11), (16, 9), (18, 10), (13, 2)], 0)  # snow cap
+    c.line(0, 21, 13, 2, 3)
+    c.line(13, 2, 28, 21, 3)
+    c.line(13, 2, 18, 10, 1)                                       # snow on the shadow side, grey
+    c.rect(0, 20, W - 1, H - 1, 0)
+    c.rect(0, 20, W - 1, 20, 2)
+    for x, h in ((3, 7), (29, 8), (25, 6)):
+        pine2(c, x, 23, h, snow=True)
+    for x, y in ((3, 3), (8, 1), (22, 2), (28, 5), (20, 7), (4, 10)):
+        c.set(x, y, 1)
+    return c
+
+
+def dragon_hollow2():
+    """Dragon Hollow: a deep canyon with layered walls, and a big dragon in the gap of sky - long neck and head to
+    the left, two bat-like wings raised with scalloped edges, a long tail - over a rocky floor."""
+    c = C(0)
+    c.poly([(0, 0), (6, 0), (7, 8), (6, 14), (9, 24), (0, 24)], 2)
+    c.poly([(31, 0), (25, 0), (24, 7), (26, 14), (23, 24), (31, 24)], 2)
+    for y in (5, 11, 17):
+        c.line(0, y, 7, y + 1, 3)
+        c.line(24, y + 1, 31, y, 3)
+    for pts in (((6, 0), (7, 8), (6, 14), (9, 24)), ((25, 0), (24, 7), (26, 14), (23, 24))):
+        for a, b in zip(pts, pts[1:]):
+            c.line(a[0], a[1], b[0], b[1], 3)
+    c.rect(8, 21, 23, 21, 3)
+    c.rect(8, 22, 23, H - 1, 1)
+    boulder(c, 13, 24, 1)
+    boulder(c, 19, 24, 2)
+    # the dragon
+    for x in range(12, 21):                                        # body
+        c.rect(x, 12, x, 13, 3)
+    c.line(12, 12, 9, 9, 3)                                        # neck
+    c.line(12, 13, 10, 10, 3)
+    c.rect(7, 8, 9, 9, 3)                                          # head + snout
+    c.set(6, 9, 3)
+    c.set(8, 7, 3)                                                 # horn
+    c.set(8, 8, 0)                                                 # eye
+    c.line(20, 13, 23, 15, 3)                                      # tail
+    c.line(23, 15, 22, 18, 3)
+    c.set(21, 18, 3)
+    c.poly([(13, 12), (9, 2), (11, 4), (12, 3), (14, 6), (15, 5), (17, 12)], 3)     # near wing
+    c.poly([(17, 12), (21, 1), (22, 4), (23, 3), (23, 7), (20, 12)], 3)          # far wing
+    c.line(12, 4, 15, 11, 2)                                       # wing bones
+    c.line(21, 4, 19, 11, 2)
+    c.rect(13, 14, 13, 15, 3)                                      # legs
+    c.rect(18, 14, 18, 15, 3)
+    return c
+
+
+def coral_reef2():
+    """Coral reef: as round 1, with a bigger, clearly drawn fish (round body, white stripe, forked tail, eye)."""
+    c = coral_reef()
+    c.rect(12, 5, 25, 12, 1)                                       # clear the old fish
+    for y in range(6, 12):                                         # body: an ellipse
+        half = int(round(4.5 * math.sqrt(max(0, 1 - ((y - 8.5) / 3.0) ** 2))))
+        c.rect(17 - half, y, 17 + half, y, 3)
+    c.rect(18, 6, 18, 11, 0)                                       # white stripe
+    c.poly([(21, 8.5), (25, 5), (24, 8.5), (25, 12)], 3)           # forked tail
+    c.set(14, 8, 0)                                                # eye
+    c.set(12, 9, 3)                                                # mouth
+    return c
+
+
+SM1.update({"boardwalk": boardwalk2, "city_square": city_square2, "shopping_plaza": shopping_plaza2,
+            "vanished_woods": vanished_woods2, "rural_station": rural_station2, "snowy_summit": snowy_summit2,
+            "dragon_hollow": dragon_hollow2, "coral_reef": coral_reef2})
+COURSES.update(SM1)
+
+
+# --- Sun / Moon round 3 (own review: the summit still a perfect triangle = a tent; the dragon's wings read as ears)
+
+def snowy_summit3():
+    """Snowy summit: a craggy mountain - an off-centre main peak with a lower shoulder on each side, dark rock with a
+    black shadow side, a white snow cap with a jagged edge reaching down the ridges - snow falling, snowy pines."""
+    c = C(0)
+    ridge = [(0, 21), (4, 15), (7, 12), (9, 13), (14, 3), (17, 7), (20, 6), (25, 13), (28, 12), (32, 18), (32, 21)]
+    c.poly(ridge, 2)
+    c.poly([(14, 3), (17, 7), (20, 6), (25, 13), (28, 12), (32, 18), (32, 21), (19, 21), (16, 12)], 3)  # shadow
+    c.poly([(14, 3), (8, 13), (10, 12), (11, 14), (13, 11.5), (14.5, 14), (16, 11), (17.5, 12.5), (18.5, 9),
+            (17, 7)], 0)                                           # snow cap, well down the lit face
+    c.poly([(17, 7), (20, 6), (23, 10.5), (21.5, 10), (20.5, 12), (19, 10), (18, 11)], 1)  # snow, shadow side
+    for a, b in zip(ridge, ridge[1:]):
+        c.line(a[0], a[1], b[0], b[1], 3)
+    c.set(5, 14, 0)                                                # snow patches lower down
+    c.rect(7, 13, 8, 13, 0)
+    c.rect(0, 20, W - 1, H - 1, 0)
+    c.rect(0, 20, W - 1, 20, 2)
+    for x, h in ((3, 7), (29, 8), (25, 6)):
+        pine2(c, x, 23, h, snow=True)
+    for x, y in ((3, 3), (8, 1), (24, 2), (29, 5), (22, 9), (5, 8)):
+        c.set(x, y, 1)
+    return c
+
+
+def dragon_hollow3():
+    """Dragon Hollow: a dragon seen from the front with its great wings spread wide like a bat's (pointed tips,
+    scalloped lower edge, wing bones), horned head, body and tail - flying over a rocky canyon floor between low
+    layered cliffs."""
+    c = C(0)
+    c.poly([(0, 12), (4, 13), (6, 18), (8, 24), (0, 24)], 2)       # low canyon walls
+    c.poly([(31, 11), (27, 13), (25, 18), (23, 24), (31, 24)], 2)
+    for pts in (((0, 12), (4, 13), (6, 18), (8, 24)), ((31, 11), (27, 13), (25, 18), (23, 24))):
+        for a, b in zip(pts, pts[1:]):
+            c.line(a[0], a[1], b[0], b[1], 3)
+    c.line(0, 17, 5, 17, 3)
+    c.line(26, 17, 31, 16, 3)
+    c.rect(7, 21, 24, 21, 3)
+    c.rect(7, 22, 24, H - 1, 1)
+    boulder(c, 12, 24, 1)
+    boulder(c, 20, 24, 1)
+    # wings: from the shoulders up to pointed tips, the lower edge scalloped between the finger bones
+    for s in (-1, 1):
+        sx = 16 + s * 2                                            # shoulder
+        tip = (16 + s * 15, 2)
+        lower = [(16 + s * 14, 6), (16 + s * 12, 9), (16 + s * 10, 7), (16 + s * 8, 10), (16 + s * 6, 8),
+                 (16 + s * 4, 11), (sx, 11)]
+        c.poly([(sx, 6), (16 + s * 6, 3), tip] + lower, 3)
+        for (fx, fy) in ((16 + s * 12, 8), (16 + s * 8, 9), (16 + s * 4, 10)):
+            c.line(sx, 6.5, fx, fy, 2)                             # wing bones
+        c.line(sx, 6, tip[0], tip[1], 3)
+    c.rect(15, 5, 16, 14, 3)                                       # body
+    c.rect(14, 7, 17, 12, 3)
+    c.rect(15, 8, 16, 11, 2)                                       # belly
+    c.rect(14, 1, 17, 4, 3)                                        # head
+    c.set(13, 0, 3)                                                # horns
+    c.set(18, 0, 3)
+    c.set(15, 2, 0)                                                # eyes
+    c.set(16, 2, 0)
+    c.rect(15, 15, 15, 17, 3)                                      # tail, curling
+    c.rect(16, 17, 17, 17, 3)
+    c.set(18, 16, 3)
+    c.rect(13, 13, 13, 14, 3)                                      # legs
+    c.rect(18, 13, 18, 14, 3)
+    return c
+
+
+SM1.update({"snowy_summit": snowy_summit3, "dragon_hollow": dragon_hollow3})
+COURSES.update(SM1)
+
+
+# --- Sun / Moon round 4 (user on the dragon and the fish: "I dont like these two. They too clearly show real
+# animals"): places only, no creatures.
+
+def dragon_hollow4():
+    """Dragon Hollow: a deep, narrow canyon - tall layered walls on both sides - with a rope-and-plank bridge slung
+    across the gap (sagging, with hand ropes and posts on each edge), a river far below."""
+    c = C(0)
+    far_hills(c, 2, 0.8, 3.0, 0.0)                                 # hills far beyond the canyon (drawn first: it
+                                                                    # fills down to the horizon row)
+    left = [(0, 6), (9, 6), (10, 11), (8, 16), (11, 24), (0, 24)]
+    right = [(31, 5), (22, 5), (21, 10), (23, 16), (20, 24), (31, 24)]
+    c.poly(left, 2)
+    c.poly(right, 2)
+    c.poly([(9, 6), (10, 11), (8, 16), (11, 24), (8, 24), (5, 16), (7, 11), (6, 6)], 3)    # shadowed inner faces
+    for pts in (left[:5], right[:5]):
+        for a, b in zip(pts, pts[1:]):
+            c.line(a[0], a[1], b[0], b[1], 3)
+    for y in (10, 14, 19):                                         # strata
+        c.line(0, y, 7, y + 1, 1)
+        c.line(23, y + 1, 31, y, 1)
+    c.rect(0, 5, 9, 5, 1)                                          # grassy rims
+    c.rect(22, 4, 31, 4, 1)
+    c.poly([(11, 24), (20, 24), (19, 20), (12, 20)], 1)            # river at the bottom
+    c.rect(13, 22, 15, 22, 0)
+    c.rect(16, 21, 17, 21, 0)
+    # the bridge: posts on both rims, a sagging deck of planks, hand ropes above it
+    for x in (8, 23):
+        c.rect(x, 2, x, 6, 3)
+    for x in range(9, 23):
+        sag = 6 + 2.2 * math.sin(math.pi * (x - 8) / 15.0)
+        c.set(x, sag, 3)                                           # deck
+        if x % 2 == 0:
+            c.set(x, sag + 1, 3)                                   # plank ends
+        c.set(x, sag - 3.2 + 0.4 * math.sin(math.pi * (x - 8) / 15.0), 3)   # hand rope
+        if x % 3 == 0:
+            c.line(x, sag - 3, x, sag, 2)                          # ropes down to the deck
+    return c
+
+
+def coral_reef4():
+    """Coral reef, underwater, no creatures: the bright surface far above with light rays slanting down, deepening
+    water, one big branching coral in the middle, tube sponges and swaying seaweed either side, bubbles rising."""
+    c = C(1)
+    c.rect(0, 0, W - 1, 1, 0)
+    for x in range(0, W, 4):
+        c.set(x + 1, 2, 0)
+    for x0 in (3, 22):                                             # light rays
+        c.line(x0, 2, x0 + 5, 16, 0)
+    c.dither(0, 14, W - 1, 20, 1, 2, 0.35)
+    c.rect(0, 21, W - 1, H - 1, 0)                                 # sand
+    c.rect(0, 21, W - 1, 21, 2)
+    # big branching coral: a trunk splitting into upward branches, rounded tips
+    def coral_branch(x0, y0, dx, ln):
+        x, y = x0, y0
+        for k in range(ln):
+            x += dx * (0.6 if k < ln // 2 else 0.2)
+            y -= 1
+            c.set(x, y, 3)
+            c.set(x + 1, y, 3)
+        c.rect(int(x) - 1, int(y) - 1, int(x) + 2, int(y), 3)
+        c.set(int(x), int(y) - 1, 2)
+    c.rect(15, 15, 17, 21, 3)                                      # trunk
+    for x0, y0, dx, ln in ((15, 16, -1, 8), (17, 16, 1, 8), (16, 14, -0.4, 9), (16, 14, 0.5, 10),
+                           (14, 18, -1.2, 5), (18, 18, 1.2, 5)):
+        coral_branch(x0, y0, dx, ln)
+    c.rect(16, 16, 16, 20, 2)
+    for x, h in ((4, 6), (6, 4), (26, 5)):                         # tube sponges
+        c.rect(x, 21 - h, x + 1, 20, 3)
+        c.set(x, 21 - h, 1)
+        c.set(x + 1, 21 - h, 1)
+    for x, h, s in ((9, 9, 1), (23, 8, -1), (29, 10, 1)):           # seaweed, swaying
+        for k in range(h):
+            c.set(x + (s if (k // 2) % 2 else 0), 20 - k, 2)
+    for x, y in ((10, 6), (11, 4), (10, 2), (22, 8), (23, 5)):     # bubbles
+        c.set(x, y, 0)
+    return c
+
+
+SM1.update({"dragon_hollow": dragon_hollow4, "coral_reef": coral_reef4})
+COURSES.update(SM1)
+
+
+# --- Sun / Moon round 5 (user: "Vanished Woods needs more dense forestry"; "Rural station doesn't look much like a
+# train station")
+
+def vanished_woods5():
+    """Vanished Woods: a dense forest in three layers - far trunks (light grey), a middle row (dark grey), near trees
+    (black) - with overlapping leaf masses closing the whole top, thick undergrowth along the bottom, a narrow path."""
+    c = C(0)
+    for x in range(1, W, 3):                                       # far layer: many thin trunks
+        c.rect(x, 4, x, 17, 1)
+    for cx, cy, r in ((3, 3, 4), (10, 2, 4), (17, 3, 4), (24, 2, 4), (31, 3, 4)):
+        c.disc(cx, cy, r, 1)                                       # far canopy
+    for x in (4, 9, 15, 21, 26):                                   # middle row of trunks
+        c.rect(x, 5, x + 1, 18, 2)
+    for cx, cy, r in ((1, 1, 4), (7, 3, 4), (13, 1, 4), (19, 2, 4), (25, 1, 4), (31, 2, 4)):
+        c.disc(cx, cy, r, 2)                                       # middle canopy
+    for cx, cy in ((7, 3), (19, 2), (31, 2)):
+        c.set(cx - 2, cy - 2, 1)                                   # light on the leaves
+    for x0 in (0, 12, 28):                                         # near trees: thick black trunks, black crowns
+        c.rect(x0, 3, x0 + 2, 19, 3)
+        c.rect(x0 + 1, 6, x0 + 1, 15, 2)
+    for cx, cy, r in ((1, 0, 4), (13, 0, 3), (29, 0, 4)):
+        c.disc(cx, cy, r, 3)
+    for x, y in ((5, 8), (18, 10), (24, 7)):                       # vines
+        c.rect(x, 4, x, y, 3)
+        c.set(x + 1, y - 2, 2)
+    c.rect(0, 18, W - 1, H - 1, 2)                                 # forest floor
+    c.poly([(15, 24), (20, 24), (18, 18), (17, 18)], 1)            # narrow path
+    for cx, cy, r in ((3, 20, 3), (9, 21, 2.5), (24, 20, 3), (30, 21, 2.5), (13, 22, 2)):
+        c.disc(cx, cy, r, 3)                                       # undergrowth
+        c.set(cx - 1, cy - 1, 2)
+    return c
+
+
+def rural_station5():
+    """Rural station, side view: a long platform canopy on posts across the top, a station clock hanging under it,
+    a passenger train standing at the platform (windows, doors, a roof line, wheels on the rail), the platform edge
+    in front."""
+    c = C(0)
+    far_hills(c, 7, 0.8, 4.0, 1.5)
+    c.rect(0, 0, W - 1, 2, 3)                                      # canopy roof
+    c.rect(0, 3, W - 1, 3, 2)
+    for x in (2, 15, 28):                                          # canopy posts
+        c.rect(x, 4, x, 18, 3)
+    c.rect(19, 4, 19, 4, 3)                                        # round station clock under the canopy
+    c.disc(19, 7, 2.3, 3)
+    c.disc(19, 7, 1.4, 0)
+    c.set(19, 6, 3)                                                # hands
+    c.set(19, 7, 3)
+    c.set(20, 7, 3)
+    # the train: one long carriage across the picture, its nose at the right
+    c.rect(0, 9, 26, 16, 1)
+    c.rect(0, 9, 26, 9, 3)                                         # roof line
+    c.rect(0, 16, 26, 16, 3)
+    c.poly([(26, 9), (29, 11), (30, 16), (26, 16)], 2)             # rounded nose
+    c.line(26, 9, 29, 11, 3)
+    c.line(29, 11, 30, 16, 3)
+    c.rect(27, 11, 28, 12, 0)                                      # driver's window
+    c.rect(0, 13, 26, 13, 2)                                       # stripe
+    for x in range(1, 25, 4):                                      # windows
+        if x in (9, 21):
+            continue
+        c.rect(x, 10, x + 2, 12, 0)
+    for x in (9, 21):                                              # doors
+        c.rect(x, 10, x + 2, 16, 2)
+        c.rect(x + 1, 10, x + 1, 16, 3)
+    for x in (4, 7, 18, 22, 27):                                   # wheels
+        c.rect(x, 17, x + 1, 17, 3)
+    c.rect(0, 18, W - 1, 18, 3)                                    # rail
+    c.rect(0, 19, W - 1, 19, 2)
+    c.rect(0, 20, W - 1, 20, 3)                                    # platform edge
+    c.rect(0, 21, W - 1, H - 1, 0)                                 # platform
+    for x in range(0, W, 4):
+        c.rect(x, 21, x + 1, 21, 1)                                # yellow-line dashes
+    return c
+
+
+SM1.update({"vanished_woods": vanished_woods5, "rural_station": rural_station5})
+COURSES.update(SM1)
+
+
 def preview_names(png, names):
     """Like preview(), but only for the given names (so a new set gets its own sheet)."""
     global KINDS

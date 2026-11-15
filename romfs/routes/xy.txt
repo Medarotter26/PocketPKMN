@@ -218,14 +218,13 @@ item 8 50 708 500 all ; Lumiose Galette
 item 9 100 11 0 all ; Luxury Ball
 
 course 12 | Starter's Lane | unlock=hof | picture=starters_lane | favoured=Grass,Fire,Water
-poke A 2 100 650 5 5000 33 45 22 0 ; Chespin: Tackle, Growl, Vine Whip
-poke A 2 100 653 5 5000 10 39 52 0 ; Fennekin: Scratch, Tail Whip, Ember
+poke A 2 100 650 5 0 33 45 22 0 ; Chespin: Tackle, Growl, Vine Whip
+poke A 2 100 653 5 0 10 39 52 0 ; Fennekin: Scratch, Tail Whip, Ember
 poke B 1 75 656 5 7500 1 45 145 0 ; Froakie: Pound, Growl, Bubble
 poke B 1 75 1 5 7500 33 45 0 0 ; Bulbasaur: Tackle, Growl
 poke C 0 50 4 5 10000 10 45 0 0 ; Charmander: Scratch, Growl
 poke C 0 50 7 5 10000 33 39 0 0 ; Squirtle: Tackle, Tail Whip
-item 0 20 660 8000 x ; Charizardite X
-item 0 20 678 8000 y ; Charizardite Y
+item 0 20 234 8000 all ; Leftovers
 item 1 20 280 7000 all ; Destiny Knot
 item 2 30 231 6000 all ; Lucky Egg
 item 3 30 538 5000 all ; Eviolite
@@ -273,8 +272,8 @@ item 8 50 229 500 all ; Everstone
 item 9 100 237 0 all ; Soft Sand
 
 course 15 | Trader's Crossing | unlock=hof watts=15000 | picture=traders_crossing | favoured=Steel,Rock,Psychic
-poke A 2 100 76 50 1000 120 523 446 89 ; Golem: Self-Destruct, Bulldoze, Stealth Rock, Earthquake
-poke A 2 100 526 50 1000 157 446 201 444 ; Gigalith: Rock Slide, Stealth Rock, Sandstorm, Stone Edge
+poke A 2 100 76 50 0 120 523 446 89 ; Golem: Self-Destruct, Bulldoze, Stealth Rock, Earthquake
+poke A 2 100 526 50 0 157 446 201 444 ; Gigalith: Rock Slide, Stealth Rock, Sandstorm, Stone Edge
 poke B 1 75 589 50 4000 442 334 404 179 ; Escavalier: Iron Head, Iron Defense, X-Scissor, Reversal
 poke B 1 75 617 50 4000 202 369 405 105 ; Accelgor: Giga Drain, U-turn, Bug Buzz, Recover
 poke C 0 50 464 50 8000 498 36 359 529 ; Rhyperior: Chip Away, Take Down, Hammer Arm, Drill Run
@@ -297,9 +296,9 @@ poke B 1 75 610 35 3000 163 206 337 349 ; Axew: Slash, False Swipe, Dragon Claw,
 poke B 1 75 443 20 3000 82 201 36 328 ; Gible: Dragon Rage, Sandstorm, Take Down, Sand Tomb
 poke C 0 50 704 35 8000 225 240 175 34 ; Goomy: Dragon Breath, Rain Dance, Flail, Body Slam
 poke C 0 50 633 45 10000 21 406 526 407 ; Deino: Slam, Dragon Pulse, Work Up, Dragon Rush
-item 0 20 683 10000 all ; Garchompite
+item 0 20 311 10000 all ; Draco Plate
 item 1 20 41 8000 all ; Max Elixir
-item 2 30 311 6000 all ; Draco Plate
+item 2 30 197 6000 all ; Haban Berry
 item 3 30 327 5000 all ; Razor Fang
 item 4 30 235 4000 all ; Dragon Scale
 item 5 40 250 3000 all ; Dragon Fang

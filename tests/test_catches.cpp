@@ -79,7 +79,7 @@ int main(int argc, char** argv)
         tr.sid = t.gen == 2 ? 0 : sav.SID();
         tr.female = sav.gender() == pksm::Gender::Female;
         tr.language = sav.language();
-        if (t.gen == 6)
+        if (t.gen == 6 || t.gen == 7)
         {
             tr.country = sav.country();
             tr.subRegion = sav.subRegion();

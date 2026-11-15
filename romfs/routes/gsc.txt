@@ -291,8 +291,8 @@ item 8 50 11 500 all ; Ice Heal
 item 9 100 79 0 all ; Burnt Berry
 
 course 16 | Starter's Lane | unlock=hof | picture=starters_lane | favoured=Grass,Fire,Water
-poke A 2 100 152 5 5000 33 45 0 0 ; Chikorita: Tackle, Growl
-poke A 2 100 155 5 5000 33 43 0 0 ; Cyndaquil: Tackle, Leer
+poke A 2 100 152 5 0 33 45 0 0 ; Chikorita: Tackle, Growl
+poke A 2 100 155 5 0 33 43 0 0 ; Cyndaquil: Tackle, Leer
 poke B 1 75 158 5 7500 10 43 0 0 ; Totodile: Scratch, Leer
 poke B 1 75 1 5 7500 33 45 0 0 ; Bulbasaur: Tackle, Growl
 poke C 0 50 4 5 10000 10 45 0 0 ; Charmander: Scratch, Growl
@@ -309,8 +309,8 @@ item 8 50 173 500 all ; Berry
 item 9 100 18 0 all ; Potion
 
 course 17 | Trader's Crossing | unlock=hof watts=10000 | picture=traders_crossing | favoured=Psychic,Ghost,Steel
-poke A 2 100 76 45 1000 120 106 205 89 ; Golem: Self-Destruct, Harden, Rollout, Earthquake
-poke A 2 100 68 45 1000 69 193 233 238 ; Machamp: Seismic Toss, Foresight, Vital Throw, Cross Chop
+poke A 2 100 76 45 0 120 106 205 89 ; Golem: Self-Destruct, Harden, Rollout, Earthquake
+poke A 2 100 68 45 0 69 193 233 238 ; Machamp: Seismic Toss, Foresight, Vital Throw, Cross Chop
 poke B 1 75 65 45 4000 105 248 94 115 ; Alakazam: Recover, Future Sight, Psychic, Reflect
 poke B 1 75 186 45 4000 3 55 95 195 ; Politoed: Double Slap, Water Gun, Hypnosis, Perish Song
 poke C 0 50 212 45 8000 97 232 163 14 ; Scizor: Agility, Metal Claw, Slash, Swords Dance

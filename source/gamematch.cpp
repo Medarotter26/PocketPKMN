@@ -77,12 +77,12 @@ namespace walkerbox
         if (sav.generation() == pksm::Generation::THREE)
             return true; // gameMatchFinish3: the game's own save rule, any language
         if (sav.generation() == pksm::Generation::SIX)
-            return true; // gameMatchFinish6 (Gen 7 is not checked yet)
+            return true; // gameMatchFinish6
+        if (sav.generation() == pksm::Generation::SEVEN)
+            return true; // gameMatchFinish7 (v0.56: checked against the user's Moon, game-made before/after pair)
         if (sav.generation() != pksm::Generation::ONE && sav.generation() != pksm::Generation::TWO)
         {
-            why = sav.generation() == pksm::Generation::SEVEN
-                      ? "Gen 7 moves are off until checked\n(opening this save made a backup)"
-                      : "only Gen 1 to 3 and 6/7 saves are handled so far";
+            why = "only Gen 1 to 3 and 6/7 saves are handled so far";
             return false;
         }
         if (sav.language() == pksm::Language::JPN || sav.language() == pksm::Language::KOR)
@@ -275,6 +275,70 @@ namespace walkerbox
         return true;
     }
 
+    // --- Gen 7 (v0.56) --------------------------------------------------------------
+    // Learned from the user's Moon (cartridge) with Checkpoint: before / after the GAME moved a Pichu from box 4
+    // slot 5 to box 3 slot 6 and saved (hw/gen7/moon_before_160900.main, moon_after_161029.main). For a box change
+    // the game rewrites: the two slots in the box block, the block-checksum table after the last block, and the
+    // 128-byte signature 0x100 before that table (plus play time etc., which PocketPKMN leaves alone). The emptied
+    // slot became the all-zero Pokemon (encrypted, EC 0, checksum 0) - the form PKSM-Core writes for an empty slot.
+    namespace
+    {
+        constexpr uint32_t G7_SLOT = 0xE8;
+        constexpr uint32_t G7_PER  = 30;
+        constexpr uint32_t G7_SM   = 0x6BE00;
+        constexpr uint32_t G7_USUM = 0x6CC00;
+
+        uint32_t g7BoxStart(uint32_t length) { return length == G7_SM ? 0x4E00 : 0x5200; }
+    }
+
+    bool gameMatchFinish7(pksm::Sav& sav, const uint8_t* before, uint32_t length, int editedBox, std::string& note)
+    {
+        if (sav.generation() != pksm::Generation::SEVEN || (length != G7_SM && length != G7_USUM) || !before ||
+            editedBox < 0 || editedBox >= sav.maxBoxes())
+        {
+            note = "not a Sun/Moon or Ultra Sun/Ultra Moon save";
+            return false;
+        }
+        {
+            // the game's own checksums must be valid, or recomputing them would change more
+            std::shared_ptr<u8[]> b(new u8[length]);
+            memcpy(b.get(), before, length);
+            auto orig = pksm::Sav::getSave(b, length);
+            if (!orig || !orig->checksumsValid())
+            {
+                note = "the save's checksums were not valid before the edit";
+                return false;
+            }
+        }
+        uint32_t from  = g7BoxStart(length) + (uint32_t)editedBox * G7_PER * G7_SLOT;
+        uint32_t to    = from + G7_PER * G7_SLOT;
+        uint32_t table = length - 0x200;       // block-checksum table (to the end of the save)
+        uint32_t sig   = table - 0x100;        // the signature over that table, 0x80 bytes
+        u8* d = sav.rawData().get();
+        // everything but that box as it was; then PKSM-Core's checksums + signature
+        for (uint32_t i = 0; i < length; i++)
+            if ((i < from || i >= to) && d[i] != before[i])
+                d[i] = before[i];
+        sav.finishEditing();
+        d = sav.rawData().get();
+        uint32_t inTable = 0, inSig = 0, other = 0;
+        for (uint32_t i = 0; i < length; i++)
+            if ((i < from || i >= to) && d[i] != before[i])
+                (i >= table ? inTable : (i >= sig && i < sig + 0x80) ? inSig : other)++;
+        if (other || inTable > 2)
+        {
+            note = "the save changed more than the box, its checksum and the signature (" + std::to_string(other) +
+                   "/" + std::to_string(inTable) + " bytes)";
+            memcpy(d, before, length);
+            sav.beginEditing();
+            return false;
+        }
+        sav.beginEditing();
+        note = "Gen 7, box " + std::to_string(editedBox + 1) + ": only that box, its checksum and the signature (" +
+               std::to_string(inSig) + " signature bytes)";
+        return true;
+    }
+
     // --- items (v0.53) -------------------------------------------------------------
     bool addItemToSave(pksm::Sav& sav, uint16_t id, bool gen2Id, std::string& where)
     {
@@ -324,7 +388,7 @@ namespace walkerbox
             where = "PC";
             return true;
         }
-        if (sav.generation() == pksm::Generation::SIX)
+        if (sav.generation() == pksm::Generation::SIX || sav.generation() == pksm::Generation::SEVEN) // v0.56: Gen 7 too
         {
             for (auto& [pouch, valid] : sav.validItems())
             {
@@ -371,12 +435,14 @@ namespace walkerbox
     {
         const bool g2 = sav.generation() == pksm::Generation::TWO;
         const bool g6 = sav.generation() == pksm::Generation::SIX && (length == G6_XY || length == G6_ORAS);
-        if (!g2 && !g6)
+        // v0.56: Gen 7 like Gen 6 (the bag, the block table), plus the 0x80-byte signature 0x100 before the table
+        const bool g7 = sav.generation() == pksm::Generation::SEVEN && (length == G7_SM || length == G7_USUM);
+        if (!g2 && !g6 && !g7)
         {
-            note = "items: only Gen 2 and Gen 6 saves";
+            note = "items: only Gen 2, 6 and 7 saves";
             return false;
         }
-        if (g6)
+        if (g6 || g7)
         {
             std::shared_ptr<u8[]> b(new u8[length]);
             memcpy(b.get(), before, length);
@@ -422,8 +488,10 @@ namespace walkerbox
             if (g2 && i >= 0x4000)
                 d[i] = before[i]; // box storage (PKSM-Core recopies the open box) and the backup copy's checksum: the
                                   // game changes neither when it stores an item
-            else if ((g2 && i >= 0x2000 && i < 0x4000) || (g6 && i >= length - 0x200))
-                sums++; // Gen 2 main checksum / X/Y block table checksum
+            else if (g7 && i >= length - 0x300 && i < length - 0x280)
+                continue; // Gen 7 signature over the block table (re-made by PKSM-Core like the game's)
+            else if ((g2 && i >= 0x2000 && i < 0x4000) || ((g6 || g7) && i >= length - 0x200))
+                sums++; // Gen 2 main checksum / X/Y / Gen 7 block table checksum
             else
                 other++;
             if (where.size() < 80)
@@ -455,7 +523,7 @@ namespace walkerbox
             backup = true;
         }
         sav.beginEditing();
-        note = std::string(g2 ? "Gen 2" : "Gen 6") + (backup ? " (+ Crystal's backup copy)" : "") +
+        note = std::string(g2 ? "Gen 2" : g7 ? "Gen 7" : "Gen 6") + (backup ? " (+ Crystal's backup copy)" : "") +
                " items: only the item list (" + std::to_string(hi - lo) +
                " bytes) and its checksum";
         return true;

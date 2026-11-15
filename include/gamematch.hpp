@@ -53,6 +53,12 @@ namespace walkerbox
     // anything outside that box would change.
     bool gameMatchFinish6(pksm::Sav& sav, const uint8_t* before, uint32_t length, int editedBox, std::string& note);
 
+    // v0.56: Gen 7 (Sun/Moon, Ultra Sun/Ultra Moon). Like Gen 6 plus the 128-byte signature over the block table
+    // (memecrypto, recomputed by PKSM-Core). Learned from the user's Moon: an emptied slot is the all-zero Pokemon
+    // (what PKSM-Core writes). Result: `before` with only the edited box, the box block's checksum and the
+    // signature changed; refused if the checksums were not valid before or anything else would change.
+    bool gameMatchFinish7(pksm::Sav& sav, const uint8_t* before, uint32_t length, int editedBox, std::string& note);
+
     // v0.53: items added to the save (Gen 2: the PC item list; X/Y: the bag) - only what the game itself changes when
     // it stores an item: that one item list, plus Gen 2's main checksum / X/Y's block checksum. Everything else is
     // put back. Refused (false, sav as before) if the edit touched more than one item list or anything else changed.

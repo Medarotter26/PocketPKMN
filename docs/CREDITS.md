@@ -34,7 +34,8 @@ who receives the app.
   Pikachu25) are no longer shown.
 - **Gen 5-7 (#494-807), converted to the walker's 4-shade screen:**
   - Black/White sprites (Game Freak / Nintendo), via the Bulbagarden Archives.
-  - **Smogon Sprite Project** (Gen 6 / Gen 7 BW-style sprites) - spriters: AMVictory, Arkeis, aXl, Branflakes325,
+  - **Smogon Sprite Project** (Gen 6 / Gen 7 BW-style sprites, and the 18 Alolan forms with their Sun/Moon menu
+    icons from the Bulbagarden Archives) - spriters: AMVictory, Arkeis, aXl, Branflakes325,
     Bynine, Corson, Espeon Scientist, fishbowlsoul90, Galifia, GeoisEvil, G.E.Z., HealnDeal, Layell, Legitimate
     Username, leParagon, Mega-Pokebattlerz, MyMarshlands, N-Kin, Noscium, paintseagull, princessofmusic,
     Quanyails, RedRooster, Siiilver, Sleet, TheAetherPlayer, The Cynical Poet, Wobblebuns, Wyverii, Zermonious,

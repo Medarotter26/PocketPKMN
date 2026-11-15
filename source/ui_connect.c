@@ -10,6 +10,7 @@
 #include <sys/iosupport.h>
 
 #include "app_paths.h"
+#include "sound.h"
 #include "ui.h"
 
 // --- stdout tap -------------------------------------------------------------------------------------------------
@@ -162,6 +163,7 @@ void ui_connect_begin(const char *title)
 void ui_connect_end(void)
 {
 	active = 0;
+	sound_transfer(0); // v0.55
 }
 
 int ui_connect_active(void)
@@ -182,7 +184,7 @@ static int split_pct(const char *s, char *text, size_t n)
 	if (d == pc)
 		return -1;
 	int v = 0;
-	for (const char *q = d; q < pc; q++)
+	for (const char *q = d; q < pc && v <= 1000; q++) // audit M14: a long run of digits cannot overflow
 		v = v * 10 + (*q - '0');
 	size_t t = (size_t)(d - s);
 	while (t > 0 && s[t - 1] == ' ')
@@ -228,11 +230,14 @@ static void note_line(const char *l)
 	if (!strncmp(l, "Connected", 9)) {
 		connected = 1;
 		lost = 0;
+		sound_transfer(1); // v0.55: the transfer sound while data moves (from memory: safe during the link)
 	} else if (!strncmp(l, "Link lost", 9)) {
 		lost = 1;
 		connected = 0;
+		sound_transfer(0);
 	} else if (!strncmp(l, "Keep the walker still", 21)) {
 		connected = 1;
+		sound_transfer(1);
 		const char *k = l + 21; // " (about 25 s)." -> "about 25 seconds"
 		while (*k == ' ' || *k == '(')
 			k++;

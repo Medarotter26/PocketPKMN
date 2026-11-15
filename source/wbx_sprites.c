@@ -111,6 +111,12 @@ int wbx_sprite_load(int dex, uint8_t out[WBX_SPRITE_SIZE])
 
 int wbx_sprite_load_for(int dex, int form, int gen, uint8_t out[WBX_SPRITE_SIZE])
 {
+	if (gen >= 7 && form > 0 && form < 32 && dex >= 1 && dex <= WBX_SPRITE_LAST) { // Alolan forms etc.
+		char dir[128], path[256];
+		snprintf(path, sizeof path, "%s/%03d_f%d.bin", on_device(WBX_SPRITE_FORMS_DIR, dir, sizeof dir), dex, form);
+		if (load_file(path, out))
+			return 1;
+	}
 	if ((gen == 1 || gen == 2) && dex >= 1 && dex <= WBX_SPRITE12_LAST) {
 		char dir[128], path[256];
 		const char *d = on_device(WBX_SPRITE12_DIR, dir, sizeof dir);

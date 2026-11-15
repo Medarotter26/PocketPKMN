@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "sound.h"
 #include "ui.h"
 #include "ui_send.h"
 #include "wbx_sprites.h"
@@ -177,7 +178,7 @@ static void route_info(const ui_send_info *in, const route_course *c)
 		seen[k] = in->seen ? in->seen(c->name, c->poke[k].species) : 1;
 		if (!seen[k])
 			continue; // v0.50: drawn with ui_unknown_icon instead
-		wbx_sprite_load_for(c->poke[k].species, 0, in->gen, spr);
+		wbx_sprite_load_for(c->poke[k].species, c->poke[k].form, in->gen, spr);
 		ui_image_from_walker(&mini[k], spr, 32, 24, 1);
 	}
 	char t[96], u[48];
@@ -188,7 +189,7 @@ static void route_info(const ui_send_info *in, const route_course *c)
 		if (*q == ',')
 			*q = '/';
 	while (aptMainLoop()) {
-		hidScanInput();
+		sound_input();
 		if (hidKeysDown() & (KEY_B | KEY_X | KEY_A | KEY_TOUCH))
 			break;
 		if (!ui_begin())
@@ -264,7 +265,7 @@ int ui_send_run(const ui_send_info *in, int *course, int *ev)
 		e = -1;
 	u64 flip = osGetTime();
 	while (aptMainLoop()) {
-		hidScanInput();
+		sound_input();
 		u32 d = hidKeysDown();
 		if (d & KEY_B)
 			break;

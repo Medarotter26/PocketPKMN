@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "sound.h"
 #include "ui.h"
 #include "ui_result.h"
 
@@ -36,7 +37,7 @@ void ui_result_run(const ui_result_info *r)
 	float iy = nc ? 140 : 36;
 	int rows_vis = (int)((206 - iy - 28) / 18), rows = (ni + 1) / 2;
 	while (aptMainLoop()) {
-		hidScanInput();
+		sound_input();
 		u32 d = hidKeysDown();
 		if (d & (KEY_A | KEY_B | KEY_TOUCH))
 			break;

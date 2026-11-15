@@ -109,7 +109,8 @@ int main(int argc, char **argv)
 	      count[3]);
 	CHECK(wbx_label_image("Super Potion", 96, 16, route.item_img[0]) == 0, "longest item name fits 96 px");
 	CHECK(wbx_label_image("Escape Rope", 96, 16, route.item_img[0]) == 0, "Escape Rope fits");
-	printf("widest 10-char nickname \"MMMMMMMMMM\": %d px of 80 (%s)\n", pw_text_width("MMMMMMMMMM") + 2,
+	// audit M20: print what wbx_label_image checks (the text width) - the old "+ 2" made "81 px of 80 (fits)"
+	printf("widest 10-char nickname \"MMMMMMMMMM\": text %d px in an 80 px label (%s)\n", pw_text_width("MMMMMMMMMM"),
 	       wbx_label_image("MMMMMMMMMM", 80, 16, route.item_img[0]) == 0 ? "fits" : "cut");
 
 	FILE *o = fopen("/tmp/walkerbox_test_walk.bin", "wb");

@@ -11,7 +11,7 @@ TOOLS=${CIA_TOOLS:-$HOME/3ds-cia-tools}
 MAKEROM=${MAKEROM:-$TOOLS/makerom}
 BANNERTOOL=${BANNERTOOL:-$TOOLS/bannertool}
 for t in "$MAKEROM" "$BANNERTOOL"; do
-    [ -x "$t" ] || { echo "missing $t (docs/SESSION_CIA.md: how to get makerom + bannertool)"; exit 1; }
+    [ -x "$t" ] || { echo "missing $t (docs/BUILDING.md: how to get makerom + bannertool)"; exit 1; }
 done
 mk() { sed -n "s/^$1[[:space:]]*:=[[:space:]]*//p" Makefile | head -1; }
 TARGET=$(mk TARGET); TITLE=$(mk APP_TITLE); DESC=$(mk APP_DESCRIPTION); AUTHOR=$(mk APP_AUTHOR)

@@ -21,6 +21,16 @@ const char *routes_file_for(unsigned long long title_id, int gen, const char **v
 	} else if (gen == 6 && title_id == 0x0004000000055E00ULL) {
 		file = "xy";
 		v = "y";
+	} else if (gen == 7) { // Sun / Moon / Ultra Sun / Ultra Moon (game card and download share the title ID)
+		static const struct { unsigned long long tid; const char *v; } g7[] = {
+			{ 0x0004000000164800ULL, "sn" }, { 0x0004000000175E00ULL, "mn" },
+			{ 0x00040000001B5000ULL, "us" }, { 0x00040000001B5100ULL, "um" },
+		};
+		for (size_t i = 0; i < sizeof g7 / sizeof g7[0]; i++)
+			if (title_id == g7[i].tid) {
+				file = "sm";
+				v = g7[i].v;
+			}
 	}
 	if (version)
 		*version = v;
@@ -107,8 +117,10 @@ int routes_load(const char *name, route_file *out)
 		if (!strncmp(line, "items ", 6)) {
 			out->item_gen = strstr(line, "gen2") ? 2 : 0;
 		} else if (!strncmp(line, "course ", 7)) {
-			if (out->ncourse >= ROUTES_MAX_COURSES)
+			if (out->ncourse >= ROUTES_MAX_COURSES) {
+				out->rejected++; // audit M7
 				break;
+			}
 			c = &out->course[out->ncourse++];
 			memset(c, 0, sizeof(*c));
 			c->number = atoi(line + 7);
@@ -137,14 +149,22 @@ int routes_load(const char *name, route_file *out)
 				if (colon)
 					*colon = 0;
 				copyn(p->name, sizeof(p->name), note);
+				const char *fm = strstr(line, " form="); // Gen 7 files
+				p->form = fm ? atoi(fm + 6) : 0;
+				if (p->form < 0 || p->form > 31)
+					p->form = 0;
 				c->npoke++;
-			}
+			} else
+				out->rejected++; // audit M7
 		} else if (!strncmp(line, "item ", 5) && c && c->nitem < 20) {
 			route_item_def *it = &c->item[c->nitem];
 			if (sscanf(line + 5, "%d %d %d %d %11s", &it->rank, &it->chance, &it->item, &it->steps, it->version) == 5) {
 				copyn(it->name, sizeof(it->name), note);
 				c->nitem++;
-			}
+			} else
+				out->rejected++;
+		} else if (!strncmp(line, "poke ", 5) || !strncmp(line, "item ", 5)) {
+			out->rejected++; // before any course, or a 7th Pokemon / 21st item
 		}
 	}
 	fclose(f);
@@ -164,8 +184,9 @@ void routes_picture(const char *slug, uint8_t out[0xC0])
 		while (y < 24 && fgets(line, sizeof(line), f)) {
 			if (line[0] == ';')
 				continue;
+			size_t n = strlen(line); // audit M8: a short line is blank after its end
 			for (int x = 0; x < 32; x++) {
-				char ch = line[x];
+				char ch = (size_t)x < n ? line[x] : ' ';
 				sh[y * 32 + x] = ch == '#' ? 3 : ch == '+' ? 2 : ch == '-' ? 1 : 0;
 			}
 			y++;
@@ -193,8 +214,10 @@ int routes_build(const route_course *c, const char *version, int gen, unsigned s
 			return -1;
 		const route_poke_def *p = cand[n == 2 ? (seed >> slot) & 1 : 0];
 		static uint8_t spr[WBX_SPRITE_SIZE];
-		wbx_sprite_load_for(p->species, 0, gen, spr);
-		wbx_summary_pack(r->poke[slot].summary, (uint16_t)p->species, 0, p->moves, (uint8_t)p->level, 0, 0);
+		wbx_sprite_load_for(p->species, p->form, gen, spr);
+		// a form travels in the summary (variant = form, flag "has form") and comes back with a catch
+		wbx_summary_pack(r->poke[slot].summary, (uint16_t)p->species, 0, p->moves, (uint8_t)p->level,
+		                 (uint8_t)p->form, p->form ? WBX_FLAG_HAS_FORM : 0);
 		r->poke[slot].min_steps = (uint16_t)p->steps;
 		r->poke[slot].percent = (uint8_t)p->chance;
 		memcpy(r->poke[slot].small, spr, WBX_SMALL_SIZE);
@@ -232,6 +255,8 @@ int routes_unlocked(const char *u, int badges, int hof, unsigned watts)
 		return 1;
 	if (sscanf(u, "badges=%d", &n) == 1)
 		return badges >= n;
+	if (sscanf(u, "trials=%d", &n) == 1) // Gen 7: badges = island trials done
+		return badges >= n;
 	if (sscanf(u, "hof watts=%d", &n) == 1)
 		return hof != 0 && watts >= (unsigned)n;
 	if (!strncmp(u, "hof", 3))
@@ -246,6 +271,16 @@ void routes_unlock_text(const char *u, char *out, int size)
 		snprintf(out, (size_t)size, "From the start");
 	else if (sscanf(u, "badges=%d", &n) == 1)
 		snprintf(out, (size_t)size, "After badge %d", n);
+	else if (sscanf(u, "trials=%d", &n) == 1) {
+		// the island challenge in story order (Sun / Moon and Ultra Sun / Ultra Moon alike)
+		static const char *const trial[] = { "Ilima's trial", "Hala's grand trial", "Lana's trial", "Kiawe's trial",
+			"Mallow's trial", "Olivia's grand trial", "Sophocles' trial", "Acerola's trial", "Nanu's grand trial",
+			"the Vast Poni trial", "Hapu's grand trial" };
+		if (n >= 1 && n <= 11)
+			snprintf(out, (size_t)size, "After %s", trial[n - 1]);
+		else
+			snprintf(out, (size_t)size, "After trial %d", n);
+	}
 	else if (sscanf(u, "hof watts=%d", &n) == 1)
 		snprintf(out, (size_t)size, "Hall of Fame + %d W", n);
 	else if (!strcmp(u, "hof"))

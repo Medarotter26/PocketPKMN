@@ -9,6 +9,7 @@
 #include "dbg.h"
 #include "pw_image.h"
 #include "app_paths.h"
+#include "sound.h"
 #include "ui.h"
 #include "ui_atlas_t3x.h"
 #include "ui_bgbot_t3x.h"
@@ -186,6 +187,7 @@ static const u8 lcd_rgb[4][3] = { { 196, 206, 168 }, { 140, 152, 116 }, { 82, 92
 int ui_image_from_walker(ui_image *im, const u8 *data, int w, int h, int transparent_white)
 {
 	u8 shades[64 * 48];
+	memset(im, 0, sizeof(*im)); // audit M11: cleared first, so a refused size never leaves garbage to free
 	if (w * h > (int)sizeof(shades) || !image_alloc(im, w, h))
 		return 0;
 	pw_img_decode(data, w, h, shades);
@@ -836,7 +838,7 @@ void ui_debug_view(void)
 	ui_legacy_present();
 	raw_mode = was;
 	while (aptMainLoop()) {
-		hidScanInput();
+		sound_input();
 		if (hidKeysDown() & KEY_B)
 			break;
 		gspWaitForVBlank();
@@ -899,6 +901,8 @@ void ui_exit(void)
 	C2D_SpriteSheetFree(sh_bgtop);
 	C2D_SpriteSheetFree(sh_bgbot);
 	C2D_SpriteSheetFree(sh_unknown);
+	// (audit M14 asked to free fb_top / fb_bot here: NOT done on purpose - the text consoles still point at them and
+	// libctru may print while the app ends; the process frees them when it ends)
 	C2D_Fini();
 	C3D_Fini();
 }

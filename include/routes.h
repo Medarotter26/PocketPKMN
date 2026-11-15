@@ -25,6 +25,7 @@ typedef struct route_poke_def {
 	int chance, species, level, steps;
 	uint16_t moves[4];
 	char name[24];   // from the file's comment
+	int form;        // Gen 7 files: "form=N" (Alolan forms, Blue-Striped Basculin); 0 otherwise
 } route_poke_def;
 
 typedef struct route_item_def {
@@ -48,10 +49,12 @@ typedef struct route_file {
 	int item_gen;    // 2 = Gen 2 item ids, 0 = the usual (Gen 4+) ids
 	route_course course[ROUTES_MAX_COURSES];
 	int ncourse;
+	int rejected;    // audit M7: lines that could not be used (bad numbers, too many Pokemon / items / courses)
 } route_file;
 
 // Which route file a game uses: "xy" for Pokemon X / Y (version "x" / "y"), "gsc" for Gold / Silver / Crystal
-// (any Gen 2 save). NULL = no routes yet ("Not yet compatible").
+// (any Gen 2 save), "sm" for Sun / Moon / Ultra Sun / Ultra Moon ("sn" / "mn" / "us" / "um"). NULL = no routes
+// yet ("Not yet compatible").
 const char *routes_file_for(unsigned long long title_id, int gen, const char **version);
 
 // Loads ROUTES_DIR/<name>.txt. Returns the course count, or -1.
@@ -65,9 +68,12 @@ int routes_build(const route_course *c, const char *version, int gen, unsigned s
 // The course picture (ROUTES_DIR/pictures/<slug>.txt) as walker image data (32x24, 2-bit); blank if missing.
 void routes_picture(const char *slug, uint8_t out[0xC0]);
 
-// "start", "badges=4", "hof", "hof watts=10000" -> "From the start", "After badge 4", ...
+// "start", "badges=4", "trials=3", "hof", "hof watts=10000" -> "From the start", "After badge 4",
+// "After Lana's trial", ...
 void routes_unlock_text(const char *unlock, char *out, int size);
-// v0.52: 1 if the course is open for this progress ("start", "badges=N", "hof", "hof watts=N"; unknown = open)
+// v0.52: 1 if the course is open for this progress ("start", "badges=N", "trials=N", "hof", "hof watts=N"; unknown =
+// open). For Gen 7 games "badges" is the number of island trials done (storage_game_progress counts the trial
+// Z-Crystals in the bag).
 int routes_unlocked(const char *unlock, int badges, int hof, unsigned watts);
 
 #ifdef __cplusplus

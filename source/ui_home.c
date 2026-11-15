@@ -5,6 +5,7 @@
 
 #include "ui_home.h"
 #include "ui_icons.h"
+#include "sound.h"
 
 static ui_image home_icon; // colour box icon of the walker slot's Pokemon, loaded while Home runs
 
@@ -20,10 +21,12 @@ static int touched(touchPosition t, float x, float y, float w, float h)
 	return t.px >= x && t.px < x + w && t.py >= y && t.py < y + h;
 }
 
+// v0.57 (user: "the text is a tiny bit too small. The headers also should be what is bold ... Is that not how our
+// other screens do it?"): as the route info screen - the heading bold, its value plain, both a little larger
 static void fact(float x, float y, const char *k, const char *v)
 {
-	ui_text(x, y, k, 8, UI_SUB, 0, 'l', 0);
-	ui_text(x, y + 9, v, 10, UI_TEXT, 1, 'l', 0);
+	ui_text(x, y, k, 9.5f, UI_TEXT, 1, 'l', 0);
+	ui_text(x, y + 11, v, 10.5f, UI_TEXT, 0, 'l', 0);
 }
 
 // A game name that fits under its icon (92 px): "Pokémon " dropped first (as the mockup's "Alpha Sapphire"), then
@@ -93,13 +96,13 @@ static void draw_home_top(const ui_home_data *d, int frame)
 	const float tx = 162;
 	ui_text(tx, 50, d->headline, 13, UI_TEXT, 1, 'l', 0);
 	if (d->slot == UI_SLOT_WALKING) {
-		fact(tx, 72, "Route", d->route);
-		fact(282, 72, "Watts kept", d->watts);
+		fact(tx, 70, "Route", d->route);
+		fact(282, 70, "Watts kept", d->watts);
 		fact(tx, 96, "Training", d->training);
 		fact(282, 96, "Walking since", d->since);
 	} else {
-		ui_text(tx, 76, d->line1, 10, UI_SUB, 0, 'l', 0);
-		ui_text(tx, 92, d->line2, 10, UI_SUB, 0, 'l', 0);
+		ui_text(tx, 76, d->line1, 10.5f, UI_SUB, 0, 'l', 0);
+		ui_text(tx, 92, d->line2, 10.5f, UI_SUB, 0, 'l', 0);
 	}
 	if (d->goes_back[0]) {
 		if (d->game.ok)
@@ -195,7 +198,7 @@ static int home_run(const ui_home_data *d, int *sel)
 	int frame = 0;
 	u64 flip = osGetTime();
 	while (aptMainLoop()) {
-		hidScanInput();
+		sound_input();
 		u32 down = hidKeysDown();
 		if (down & (KEY_START | KEY_B))
 			return UI_HOME_EXIT;
@@ -249,10 +252,12 @@ int ui_list_run(const char *page, const char *title, const char *const *labels, 
                 int *sel)
 {
 	int first = 0;
+	if (n <= 0) // audit M13: an empty list has nothing to choose
+		return -1;
 	if (*sel < 0 || *sel >= n)
 		*sel = 0;
 	while (aptMainLoop()) {
-		hidScanInput();
+		sound_input();
 		u32 down = hidKeysDown();
 		if (down & KEY_B)
 			return -1;
