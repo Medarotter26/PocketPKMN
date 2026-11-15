@@ -53,6 +53,17 @@ namespace walkerbox
     // anything outside that box would change.
     bool gameMatchFinish6(pksm::Sav& sav, const uint8_t* before, uint32_t length, int editedBox, std::string& note);
 
+    // v0.53: items added to the save (Gen 2: the PC item list; X/Y: the bag) - only what the game itself changes when
+    // it stores an item: that one item list, plus Gen 2's main checksum / X/Y's block checksum. Everything else is
+    // put back. Refused (false, sav as before) if the edit touched more than one item list or anything else changed.
+    bool gameMatchItems(pksm::Sav& sav, const uint8_t* before, uint32_t length, std::string& note);
+
+    // v0.53 (user: "items sent over should go to pc, not item bag. Unless its a generation without an item pc"):
+    // adds one item to the save in memory - Gen 2: the PC item storage; X/Y (no item PC): the bag pocket that holds
+    // it. Stacks onto the same item first. gen2Id = the id is a Gen 2 item number (GSC courses), else national.
+    // where = "PC" / the pocket's name. False (why) if there is no room or the item does not exist in that game.
+    bool addItemToSave(pksm::Sav& sav, uint16_t id, bool gen2Id, std::string& where);
+
     // The game's blank Pokemon for this Gen 6 save, encrypted as stored (0xE8 bytes):
     // `found` says whether it was copied from the save or built.
     std::vector<uint8_t> gen6Blank(const pksm::Sav& sav, const uint8_t* save, bool& found);

@@ -92,9 +92,17 @@ void ui_result_run(const ui_result_info *r)
 		ui_rect(20, 172, 360, 1, C2D_Color32(150, 180, 140, 160));
 		char buf[160];
 		snprintf(buf, sizeof(buf), "%s", r->back);
-		float y = 190;
+		// v0.53 (user: "make sure to have a message explaining where items/pokemon are sent to"): under the Pokemon's
+		// own line, where its catches and items went
+		int extra = (r->sent_line[0][0] != 0) + (r->sent_line[1][0] != 0);
+		float y = extra ? 184 : 190;
 		for (char *s = strtok(buf, "\n"); s && y < 228; s = strtok(NULL, "\n"), y += 17)
-			ui_text(200, y, s, 12.5f, UI_TEXT, 1, 'c', 1);
+			ui_text(200, y, s, extra ? 11.5f : 12.5f, UI_TEXT, 1, 'c', 1);
+		for (int i = 0; i < 2 && y < 232; i++)
+			if (r->sent_line[i][0]) {
+				ui_text(200, y, r->sent_line[i], 10, UI_SUB, 0, 'c', 1);
+				y += 14;
+			}
 
 		ui_target_bottom();
 		ui_band(0, 6, 320, 22, "Found on the walk", 12, 0);

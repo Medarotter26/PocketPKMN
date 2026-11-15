@@ -25,6 +25,7 @@ extern "C" void ui_legacy_present(void); // include/ui.h (v0.32: screen output o
 #include "enums/Species.hpp"
 #include "pkx/PKX.hpp"
 #include "sav/Sav.hpp"
+#include "sav/Item.hpp"
 #include "utils/i18n.hpp"
 
 #include <algorithm>
@@ -2225,6 +2226,51 @@ extern "C" void storage_games_release(void)
     g_gbaGuard.reset(); // ends the GBA session (as GbaSessionGuard at the end of storage_pick_for_walk)
 }
 
+// v0.52 (locked courses): has the save entered the Hall of Fame? Read only.
+//   Gen 2: the first Hall of Fame record (newest first) in SRAM bank 1 - Gold/Silver at file 0x321A, Crystal at
+//   0x32C0 (found on the user's own saves, pokecrystal "SRAM Hall of Fame"): win count > 0, a real first species,
+//   the record's end byte 0xFF. Record layout: win count, 6 x 16-byte mons, end byte (0x62 bytes).
+//   X / Y: Hall of Fame block at 0x19400 (PKHeX SAV6XY "HoF"), entry 0 = the first clear, its u32 index at +0x1B0
+//   has "has data" in bit 31 (PKHeX HallFame6Index) -> byte 0x195B3 bit 7.
+//   Other games: 0 (no courses use it yet).
+namespace
+{
+    int hallOfFameOf(const FoundSave& f)
+    {
+        const u8* d = f.sav->rawData().get();
+        int gen     = genOf(*f.sav);
+        if (gen == 2)
+        {
+            u32 base = f.sav->version() == pksm::GameVersion::C ? 0x32C0 : 0x321A;
+            if (f.length < base + 0x62)
+                return 0;
+            return d[base] != 0 && d[base + 1] >= 1 && d[base + 1] <= 251 && d[base + 0x61] == 0xFF;
+        }
+        if (gen == 6 && (f.sav->version() == pksm::GameVersion::X || f.sav->version() == pksm::GameVersion::Y))
+            return f.length > 0x195B3 && (d[0x195B3] & 0x80) != 0;
+        return 0;
+    }
+
+    struct Progress
+    {
+        u64 tid;
+        int badges, hof;
+    };
+    std::vector<Progress> g_progress; // kept after storage_games_release: the send screen asks for it later
+}
+
+extern "C" int storage_game_progress(unsigned long long title_id, int* badges, int* hof)
+{
+    for (const Progress& p : g_progress)
+        if (p.tid == title_id)
+        {
+            *badges = p.badges;
+            *hof    = p.hof;
+            return 1;
+        }
+    return 0;
+}
+
 extern "C" int storage_games_scan(storage_game_info* out, int max, char* why, int why_size)
 {
     storage_games_release();
@@ -2256,6 +2302,20 @@ extern "C" int storage_games_scan(storage_game_info* out, int max, char* why, in
         g.has_routes = routes_file_for(f.titleId, g.gen, nullptr) != nullptr; // v0.41: a route file for this game
         g.boxes      = f.sav->maxBoxes();
         g.per_box    = g.boxes ? f.sav->maxSlot() / g.boxes : 0;
+        // v0.52: progress for the course unlocks (badges: PKSM-Core; Gen 2 counts Johto + Kanto badges)
+        g.badges = f.sav->badges();
+        g.hof    = hallOfFameOf(f);
+        bool known = false;
+        for (Progress& p : g_progress)
+            if (p.tid == f.titleId)
+            {
+                p.badges = g.badges;
+                p.hof    = g.hof;
+                known    = true;
+            }
+        if (!known)
+            g_progress.push_back({f.titleId, g.badges, g.hof});
+        dbg_printf("storage: %s: %d badge(s), Hall of Fame %s", g.name, g.badges, g.hof ? "yes" : "no");
     }
     return n;
 }
@@ -2431,4 +2491,291 @@ extern "C" void storage_item_name(int gen2, int id, char* out, int out_size)
         return;
     }
     snprintf(out, (size_t)out_size, "%s", i18n::item(pksm::Language::ENG, (u16)id).c_str());
+}
+
+// --- v0.53: a walk's catches, made legal (walk_catch.cpp, templates from PKHeX) and put into the walked Pokemon's
+// game. Each goes into a free PocketPKMN slot first (with the walked Pokemon's origin record), then into the game by
+// withdrawOne (the same checked write as every move). A catch that cannot go into the game waits in PocketPKMN.
+namespace
+{
+    // the template for (version index, course, poke) from romfs routes/catch_*.bin
+    bool findTemplate(const char* file, int vi, int course, int poke, std::vector<u8>& data, walkerbox::CatchTemplate& t)
+    {
+        FILE* f = fopen(file, "rb");
+        if (!f)
+            return false;
+        std::vector<u8> bin;
+        u8 buf[4096];
+        size_t got;
+        while ((got = fread(buf, 1, sizeof(buf), f)) > 0)
+            bin.insert(bin.end(), buf, buf + got);
+        fclose(f);
+        if (bin.size() < 6 || memcmp(bin.data(), "PPCT", 4))
+            return false;
+        size_t at = 6;
+        while (at + 8 <= bin.size())
+        {
+            size_t len = bin[at + 6] | (bin[at + 7] << 8);
+            if (at + 8 + len > bin.size())
+                break;
+            if (bin[at] == vi && bin[at + 1] == course && bin[at + 2] == poke)
+            {
+                data.assign(bin.begin() + at + 8, bin.begin() + at + 8 + len);
+                t.gen      = bin[at + 3];
+                t.flags    = bin[at + 4];
+                t.fixedIVs = bin[at + 5];
+                t.data     = data.data();
+                t.len      = data.size();
+                return true;
+            }
+            at += 8 + len;
+        }
+        return false;
+    }
+
+    // the course Pokemon a catch came from: same species, level and moves on one of the game's courses
+    bool findCoursePoke(const char* routesFile, const storage_catch& c, int& course, int& poke)
+    {
+        static route_file rf;
+        if (routes_load(routesFile, &rf) <= 0)
+            return false;
+        for (int ci = 0; ci < rf.ncourse; ci++)
+            for (int pi = 0; pi < rf.course[ci].npoke; pi++)
+            {
+                const route_poke_def& p = rf.course[ci].poke[pi];
+                if (p.species != c.species || p.level != c.level)
+                    continue;
+                bool same = true;
+                for (int m = 0; m < 4; m++)
+                    same = same && p.moves[m] == c.moves[m];
+                if (same)
+                {
+                    course = ci;
+                    poke   = pi;
+                    return true;
+                }
+            }
+        return false;
+    }
+}
+
+extern "C" int storage_deliver_catches(int from_box, int from_slot, const storage_catch* catches, int n, char* msg,
+    int msg_size)
+{
+    std::string out;
+    setWhy(msg, msg_size, "");
+    if (n <= 0)
+        return 0;
+    if (!bankInRange(from_box, from_slot) || !prepareData() || !bankLoad() || !bankGen(from_box, from_slot))
+    {
+        setWhy(msg, msg_size, "The caught Pokemon could not be made (PocketPKMN box).");
+        return -1;
+    }
+    char ot[24];
+    unsigned long long tid = 0;
+    if (!storage_walk_origin(from_box, from_slot, ot, sizeof(ot), nullptr, nullptr, &tid))
+    {
+        setWhy(msg, msg_size, "The caught Pokemon could not be made: the walked\nPokemon has no record of its game.");
+        return -1;
+    }
+    int gen    = bankGen(from_box, from_slot);
+    auto shell = bankPkm(from_box, from_slot);
+    std::vector<u8> origin(bankEntry(from_box, from_slot) + BANK_ORIGIN, bankEntry(from_box, from_slot) + BANK_ENTRY);
+    GbaSessionGuard gba;
+    std::vector<FoundSave> saves = scanVcSaves();
+    FoundSave* fs = nullptr;
+    int recMedia  = origin[0x0F] - 1;
+    for (FoundSave& f : saves)
+        if (f.titleId == tid && (recMedia < 0 || (int)f.media == recMedia))
+            fs = &f;
+    if (!fs)
+        for (FoundSave& f : saves)
+            if (f.titleId == tid)
+                fs = &f;
+    if (!fs)
+    {
+        setWhy(msg, msg_size, "The caught Pokemon wait: their game is not here.");
+        return -1;
+    }
+    FoundSave& f           = *fs;
+    pksm::GameVersion ver  = f.sav->version();
+    const char* tplFile    = nullptr;
+    const char* routesFile = routes_file_for(tid, gen, nullptr);
+    int vi                 = -1;
+    if (gen == 6 && (ver == pksm::GameVersion::X || ver == pksm::GameVersion::Y))
+    {
+        tplFile = "romfs:/routes/catch_xy.bin";
+        vi      = ver == pksm::GameVersion::X ? 0 : 1;
+    }
+    else if (gen == 2)
+    {
+        tplFile = "romfs:/routes/catch_gsc.bin";
+        vi      = ver == pksm::GameVersion::C ? 2 : ver == pksm::GameVersion::SV ? 1 : 0;
+    }
+    if (!tplFile || !routesFile)
+    {
+        setWhy(msg, msg_size, "No catches can be made for this game yet.");
+        return -1;
+    }
+    walkerbox::CatchTrainer tr;
+    tr.name     = f.sav->otName();
+    tr.tid      = f.sav->TID();
+    tr.sid      = gen == 2 ? 0 : f.sav->SID();
+    tr.female   = f.sav->gender() == pksm::Gender::Female;
+    tr.language = f.sav->language();
+    if (gen == 6)
+    {
+        tr.country       = f.sav->country();
+        tr.subRegion     = f.sav->subRegion();
+        tr.consoleRegion = f.sav->consoleRegion();
+    }
+    time_t now    = time(nullptr);
+    struct tm* lt = localtime(&now);
+    int delivered = 0;
+    std::string ready;
+    bool canMove = readyToMove(f, ready);
+    for (int i = 0; i < n; i++)
+    {
+        const storage_catch& c = catches[i];
+        int course = -1, poke = -1;
+        std::vector<u8> tdata;
+        walkerbox::CatchTemplate t;
+        std::string name = i18n::species(pksm::Language::ENG, pksm::Species{c.species});
+        if (!findCoursePoke(routesFile, c, course, poke) || !findTemplate(tplFile, vi, course, poke, tdata, t))
+        {
+            out += name + ": not one of this game's course Pokemon\n(kept only in the log).\n";
+            dbg_printf("catch %s Lv%d: no course / template match", name.c_str(), c.level);
+            continue;
+        }
+        std::unique_ptr<pksm::PKX> pk;
+        std::string why;
+        u32 seed = (u32)now ^ (u32)(c.species * 2654435761u) ^ (u32)(i * 40503u) ^ (u32)svcGetSystemTick();
+        if (!walkerbox::buildCatch(t, tr, shell.get(), c.shiny != 0, c.female != 0, seed, lt ? lt->tm_mday : 1,
+                lt ? lt->tm_mon + 1 : 1, lt ? lt->tm_year + 1900 : 2026, pk, why))
+        {
+            out += name + ": could not be made (" + why + ").\n";
+            dbg_printf("catch %s: build failed: %s", name.c_str(), why.c_str());
+            continue;
+        }
+        int bb = -1, bs = -1; // a free PocketPKMN slot, never the walker slot
+        for (int b = 0; b < BANK_BOXES && bb < 0; b++)
+            for (int s = 0; s < BANK_SLOTS && bb < 0; s++)
+                if (!(b == STORAGE_WALK_BOX && s == STORAGE_WALK_SLOT) && !bankGen(b, s))
+                {
+                    bb = b;
+                    bs = s;
+                }
+        if (bb < 0)
+        {
+            out += name + ": the PocketPKMN boxes are full.\n";
+            continue;
+        }
+        Raw raw = rawOf(pk.get());
+        bankPut(bb, bs, gen, raw);
+        memcpy(bankEntry(bb, bs) + BANK_ORIGIN, origin.data(), origin.size()); // the same game and trainer
+        if (!bankSaveChecked(bb, bs, raw))
+        {
+            bankClear(bb, bs);
+            bankSave();
+            out += name + ": could not be saved.\n";
+            continue;
+        }
+        dbg_printf("catch %s Lv%d (course %d poke %d, template flags %d) -> bank %d/%d", name.c_str(), c.level,
+            course, poke, t.flags, bb + 1, bs + 1);
+        std::string m;
+        int gb = -1, gs = -1;
+        if (canMove && withdrawOne(f, bb, bs, 0, true, m, &gb, &gs))
+        {
+            delivered++;
+            out += name + " is now in " + f.name + " (box " + std::to_string(gb + 1) + ").\n";
+        }
+        else
+            out += name + " waits in PocketPKMN: " + (canMove ? m : ready) + "\n";
+    }
+    dbg_flush(LOG_PATH);
+    setWhy(msg, msg_size, out);
+    return delivered;
+}
+
+// v0.53 (user: "items sent over should go to pc, not item bag. Unless its a generation without an item pc"): the
+// walk's items into the walked Pokemon's game - Gen 2: the PC item storage, X/Y (no item PC): the bag. One item at a
+// time: added in memory, checked to change only that item list (gameMatchItems), written, and read back on failure.
+extern "C" int storage_deliver_items(int from_box, int from_slot, const storage_found_item* items, int n,
+    char* where, int where_size, char* msg, int msg_size)
+{
+    setWhy(msg, msg_size, "");
+    setWhy(where, where_size, "");
+    if (n <= 0)
+        return 0;
+    char ot[24];
+    unsigned long long tid = 0;
+    if (!bankInRange(from_box, from_slot) || !prepareData() || !bankLoad() || !bankGen(from_box, from_slot) ||
+        !storage_walk_origin(from_box, from_slot, ot, sizeof(ot), nullptr, nullptr, &tid))
+    {
+        setWhy(msg, msg_size, "The items could not be sent (no record of the game).");
+        return -1;
+    }
+    int recMedia = bankEntry(from_box, from_slot)[BANK_ORIGIN + 0x0F] - 1;
+    GbaSessionGuard gba;
+    std::vector<FoundSave> saves = scanVcSaves();
+    FoundSave* fs = nullptr;
+    for (FoundSave& f : saves)
+        if (f.titleId == tid && (recMedia < 0 || (int)f.media == recMedia))
+            fs = &f;
+    if (!fs)
+        for (FoundSave& f : saves)
+            if (f.titleId == tid)
+                fs = &f;
+    if (!fs || fs->gba)
+    {
+        setWhy(msg, msg_size, fs ? "Items cannot be sent to this game yet." : "The items wait: their game is not here.");
+        return -1;
+    }
+    FoundSave& f = *fs;
+    std::string ready;
+    if (!readyToMove(f, ready))
+    {
+        setWhy(msg, msg_size, "The items could not be sent: " + ready);
+        return -1;
+    }
+    std::string out, place;
+    int sent = 0;
+    for (int i = 0; i < n; i++)
+    {
+        u8* d = f.sav->rawData().get();
+        std::vector<u8> before(d, d + f.length);
+        std::string w, note;
+        char nm[32];
+        storage_item_name(items[i].gen2id, (int)items[i].id, nm, sizeof(nm));
+        std::string name = nm[0] ? nm : "Item " + std::to_string(items[i].id);
+        if (!walkerbox::addItemToSave(*f.sav, (u16)items[i].id, items[i].gen2id != 0, w))
+        {
+            memcpy(f.sav->rawData().get(), before.data(), f.length);
+            f.sav->beginEditing();
+            out += name + ": " + w + ".\n";
+            continue;
+        }
+        if (!walkerbox::gameMatchItems(*f.sav, before.data(), f.length, note))
+        {
+            dbg_printf("items: %s refused: %s", name.c_str(), note.c_str());
+            out += name + ": not stored (the safety check refused).\n";
+            continue; // gameMatchItems put the save back
+        }
+        if (!writeUserSave(f.titleId, f.media, f.path, f.sav->rawData().get(), f.length))
+        {
+            reloadSave(f);
+            out += name + ": writing the game save failed.\n";
+            dbg_printf("items: %s: write failed", name.c_str());
+            continue;
+        }
+        dbg_printf("items: %d (%s) -> %s of %s (%s)", items[i].id, items[i].gen2id ? "Gen 2 id" : "national",
+            w.c_str(), f.label.c_str(), note.c_str());
+        place = w;
+        sent++;
+    }
+    if (sent)
+        setWhy(where, where_size, place == "PC" ? "the PC" : "the bag");
+    dbg_flush(LOG_PATH);
+    setWhy(msg, msg_size, out);
+    return sent;
 }

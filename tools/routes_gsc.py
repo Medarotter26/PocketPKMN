@@ -91,6 +91,13 @@ class Gen2Items:
         return self.index.get(xy.norm(ITEM_ALIASES.get(name, name)))
 
 
+LEVEL_FIXES = {
+    # user 2026-11-15 "just make ditto level 10": GSC has no Ditto below Lv 10 (Route 34 / 35 from Lv 10; Ditto
+    # cannot be bred), so a Lv 9 catch would not be legal (PKHeX, tools/pkhex_check templates)
+    ("Shopping District", "Ditto"): 10,
+}
+
+
 def main():
     book = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_BOOK
     out_path = sys.argv[2] if len(sys.argv) > 2 else DEFAULT_OUT
@@ -140,6 +147,8 @@ def main():
                 raise SystemExit("%s group %s has %d Pokemon" % (cname, grp, len(members)))
             slot, chance = GROUP_SLOT[grp]
             for _, pname, level, steps in members:
+                # legality fixes the user chose (the workbook is not edited; a rebuild keeps them)
+                level = LEVEL_FIXES.get((cname, pname), level)
                 sid = species.find(SPECIES_ALIASES.get(pname, pname))
                 if sid is None or sid > MAX_SPECIES:
                     unresolved.append("species: " + pname)

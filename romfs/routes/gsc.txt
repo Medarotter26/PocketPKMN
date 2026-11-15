@@ -79,7 +79,7 @@ poke A 2 100 83 5 0 64 0 0 0 ; Farfetch’d: Peck
 poke A 2 100 96 5 0 1 95 0 0 ; Drowzee: Pound, Hypnosis
 poke B 1 75 209 7 500 33 184 39 0 ; Snubbull: Tackle, Scary Face, Tail Whip
 poke B 1 75 108 7 500 122 48 0 0 ; Lickitung: Lick, Supersonic
-poke C 0 50 132 9 1500 144 0 0 0 ; Ditto: Transform
+poke C 0 50 132 10 1500 144 0 0 0 ; Ditto: Transform
 poke C 0 50 235 9 1500 166 0 0 0 ; Smeargle: Sketch
 item 0 20 32 4000 all ; Rare Candy
 item 1 20 105 3000 all ; Stick

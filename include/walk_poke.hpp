@@ -45,5 +45,32 @@ namespace walkerbox
 
     // The game's own EV cap per stat for a generation (0 = no EVs: Gen 1/2).
     u16 walkEvCap(int gen);
+
+    // --- v0.53: legal catches (user: "Legality is very important. Please make sure any pokemon generated is legal") --
+    // A catch is made from a template that PKHeX built and checked on the PC (tools/pkhex_check, romfs
+    // routes/catch_*.bin): the course Pokemon at the course level with the course moves, from a legal origin in that
+    // game (hidden ability where one is legal). Here only what is free in that origin is changed: the trainer, new
+    // random PID / encryption constant / IVs (the template's guaranteed perfect IVs kept) / nature (Gen 6) or DVs
+    // (Gen 2), shiny and gender as the walker says, and today's dates.
+    struct CatchTemplate
+    {
+        int gen = 0;          // 2 or 6
+        u8 flags = 0;         // 1 hidden ability, 2 egg, 4 traded once
+        u8 fixedIVs = 0;      // IVs the origin guarantees at 31 (Gen 6)
+        const u8* data = nullptr; // PK6: 232-byte decrypted box data; PK2: 32-byte box struct
+        size_t len = 0;
+    };
+    struct CatchTrainer // the origin save's trainer
+    {
+        std::string name;
+        u16 tid = 0, sid = 0;
+        bool female = false;
+        pksm::Language language = pksm::Language::ENG;
+        u8 country = 0, subRegion = 0, consoleRegion = 0; // Gen 6
+    };
+    // shell = a Pokemon of the target game's format to start a Gen 2 catch from (the walked Pokemon: right list
+    // format and language); unused for Gen 6. Returns false (why) if the template cannot be used.
+    bool buildCatch(const CatchTemplate& t, const CatchTrainer& tr, const pksm::PKX* shell, bool shiny, bool female,
+        u32 seed, int day, int month, int year, std::unique_ptr<pksm::PKX>& out, std::string& why);
     const char* walkEvName(int evStat); // "Off", "HP", "Atk", "Def", "SpA", "SpD", "Spe"
 }

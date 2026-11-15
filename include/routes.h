@@ -67,6 +67,8 @@ void routes_picture(const char *slug, uint8_t out[0xC0]);
 
 // "start", "badges=4", "hof", "hof watts=10000" -> "From the start", "After badge 4", ...
 void routes_unlock_text(const char *unlock, char *out, int size);
+// v0.52: 1 if the course is open for this progress ("start", "badges=N", "hof", "hof watts=N"; unknown = open)
+int routes_unlocked(const char *unlock, int badges, int hof, unsigned watts);
 
 #ifdef __cplusplus
 }

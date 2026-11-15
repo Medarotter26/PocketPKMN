@@ -20,8 +20,13 @@ generations 1 to 7, through the 3DS's own IR port.
   sprites), so they look like themselves on the walker; later generations use walker-style sprites too.
 - **Courses made per game:** each game gets its own set of courses, so walks are not the same from game to game.
 - **A slightly different experience from the original:** courses open as you make progress in your game (gym
-  badges, then the Hall of Fame), and the Pokémon levels on the courses rise with that progress, so what you catch
-  stays useful while you play. The goal for the courses is to cover every version exclusive and trade evolution.
+  badges, the Hall of Fame, and for some later courses collected watts), and the Pokémon levels on the courses rise
+  with that progress, so what you catch stays useful while you play. The goal for the courses is to cover every
+  version exclusive and trade evolution.
+- **Legal catches:** Pokémon caught on a walk go into the walked Pokémon's game as legal Pokémon of that game, with
+  your trainer's details - made from origins found and checked with PKHeX's own legality analysis (hidden abilities
+  wherever a legal origin allows one). Found items go to the game's PC item storage (Gen 2) or bag (X / Y, which
+  have no item PC).
 - **EV training on walks:** when you send a Pokémon you can pick a stat; it gains 1 EV in that stat for every 20
   steps (games with EVs).
 
@@ -30,7 +35,8 @@ generations 1 to 7, through the 3DS's own IR port.
 - **Courses exist only for Gen 2 (Gold / Silver / Crystal) and Gen 6 (X / Y).** Support for the other generations is
   planned, but their courses are not designed yet. This version is an expanded proof of concept; the courses may
   still change.
-- **Course unlocks are shown but not enforced yet:** every course can be picked.
+- **Delivering catches and items is new in v0.53** and has been checked on PC against real saves (every possible
+  catch passes PKHeX), but not yet on a console - keep your save backups.
 - **Gen 5+ Pokémon have no second animation frame** on the walker yet (good frames for Gen 5 are being looked for).
 - Saves that can be used today: see "Supported saves" below.
 
@@ -89,7 +95,10 @@ devkitARM (devkitPro) with libctru, citro2d and citro3d. On Windows the included
 Elsewhere: `make` (and `make cia`). `make` does not notice changes in `romfs/` - delete the .3dsx first.
 
 PC tests (Linux / WSL, gcc): `tests/run.sh`, `run_routes.sh`, `run_sprite_gen.sh` and `run_migrate.sh` run anywhere.
-`run_storage.sh`, `run_walk.sh`, `run_image.sh` and `run_sprites.sh` read real game saves and walker backups (a
+`tests/run_catches.sh` builds every possible walk catch and runs PKHeX.Core's legality analysis on it (needs .NET 10
+and the checker in `tools/pkhex_check_*.cs`, built as `~/pkhex-check`); `tools/pkhex_check_Templates.cs` makes the
+legal catch templates in `romfs/routes/catch_*.bin` (reports: `docs/CATCHES_XY.md`, `docs/CATCHES_GSC.md`).
+`run_storage.sh`, `run_walk.sh`, `run_image.sh`, `run_sprites.sh` and `run_catches.sh` read real game saves and walker backups (a
 `hw/` folder) that are not part of this repository; without it they print "skipped" and pass.
 
 Tools for the art and data are in `tools/` (Python 3 + Pillow): `ui_atlas.py` (UI pieces), `route_art.py` (course

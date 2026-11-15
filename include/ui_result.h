@@ -26,6 +26,8 @@ typedef struct ui_result_info {
 	const u8 *caught_name[3];  // 80x16 name pictures from the route (NULL if not on the route)
 	const u8 *caught_small[3]; // 32x24 x2 small sprites from the route
 	char caught_text[3][24];   // v0.50: species names as text (filled after the link, "" = unknown)
+	char caught_msg[400];      // v0.53: where the catches went (one line each), "" = not delivered
+	char sent_line[2][96];     // v0.53: "The Pokemon it caught are in its game's boxes." / "The items ... in the PC."
 	int nitems;
 	unsigned item[13];
 	const u8 *item_name[13];   // 96x16 name pictures from the route (NULL if not on it)

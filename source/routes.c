@@ -222,6 +222,23 @@ int routes_build(const route_course *c, const char *version, int gen, unsigned s
 	return 0;
 }
 
+// v0.52 (user: "the next step is to block locked courses"): is the course open for this save's progress?
+// "start" = always; "badges=N" = N or more badges; "hof" = Hall of Fame entered; "hof watts=N" = Hall of Fame and N
+// or more watts collected (the watts PocketPKMN has banked); anything unknown = open (never lock by mistake).
+int routes_unlocked(const char *u, int badges, int hof, unsigned watts)
+{
+	int n = 0;
+	if (!strcmp(u, "start"))
+		return 1;
+	if (sscanf(u, "badges=%d", &n) == 1)
+		return badges >= n;
+	if (sscanf(u, "hof watts=%d", &n) == 1)
+		return hof != 0 && watts >= (unsigned)n;
+	if (!strncmp(u, "hof", 3))
+		return hof != 0;
+	return 1;
+}
+
 void routes_unlock_text(const char *u, char *out, int size)
 {
 	int n = 0;

@@ -35,7 +35,7 @@
 #include "wbx_sprites.h"
 #include "wbx_trainer.h"
 
-#define APP_VERSION "0.51"
+#define APP_VERSION "0.53"
 #define LOG_PATH    APP_DIR "/link_log.txt"
 #define LEDGER_PATH APP_DIR "/ledger.txt"
 
@@ -1062,6 +1062,25 @@ static void do_walk_start(void)
 
 static void draw_walker_image(const u8 *img, int w, int h, int sx, int sy, int scale);
 
+// v0.52: every watt PocketPKMN has banked (the "watts-banked=" of each walk start and walker reset in the ledger) -
+// the watts collected, for the courses that open with the Hall of Fame + N watts. Not for IR time (reads the SD).
+static unsigned watts_banked_total(void)
+{
+	FILE *f = fopen(LEDGER_PATH, "r");
+	if (!f)
+		return 0;
+	char line[256];
+	unsigned long total = 0;
+	unsigned w;
+	while (fgets(line, sizeof(line), f)) {
+		const char *a = strstr(line, " watts-banked=");
+		if (a && sscanf(a, " watts-banked=%u", &w) == 1)
+			total += w;
+	}
+	fclose(f);
+	return total > 0xFFFFFFFFUL ? 0xFFFFFFFFU : (unsigned)total;
+}
+
 // Ledger line of a bank walk: "walk-start walker=K route=R watts-banked=W bank=B/S pk=F [steps-start=N ev=E]"
 // (B, S from 1; steps-start/ev since v0.30). Finds the newest such line for this walker and route. Returns 1 and
 // box/slot (from 0) + fingerprint; *steps_start = -1 and *ev = -1 when the line has none.
@@ -1348,12 +1367,20 @@ static void do_send_walk(void)
 			}
 			si.rf = (file && routes_load(file, &walk_routes) > 0) ? &walk_routes : NULL;
 			si.gen = course_gen;
+			// v0.52: the origin game's badges / Hall of Fame (from the last games scan) lock courses not reached yet
+			si.progress_known = tid && storage_game_progress(tid, &si.badges, &si.hof);
+			si.watts = watts_banked_total();
+			dbg_printf("send walk: progress %s: %d badge(s), Hall of Fame %s, %u watt(s) banked",
+			           si.progress_known ? "known" : "unknown", si.badges, si.hof ? "yes" : "no", si.watts);
 			seen_load();
 			si.seen = seen_on;
 			dbg_printf("send walk: routes %s (%s, version %s): %d course(s)", file ? file : "none", game, course_ver,
 			           si.rf ? walk_routes.ncourse : 0);
 			snprintf(si.line1, sizeof(si.line1), "%s  Lv.%u  \xC2\xB7  from %s%s%s%s", nick0, walk_poke.summary[12],
 			         game, ot[0] ? " (" : "", ot, ot[0] ? ")" : "");
+			snprintf(si.mon, sizeof(si.mon), "%s  Lv.%u", nick0, walk_poke.summary[12]); // v0.52: the info columns
+			snprintf(si.game, sizeof(si.game), "%s", game);
+			snprintf(si.trainer, sizeof(si.trainer), "%s", ot);
 			if (!si.ev_allowed)
 				walk_ev = -1;
 			if (ui_send_run(&si, &course, &walk_ev))
@@ -1671,6 +1698,7 @@ static void do_walk_end(void)
 	// v0.41: the result screen's data (filled next to the printed lines below; those stay for the debug view).
 	// The walk's own data (route Pokemon / item name pictures) comes from the part 1 backup.
 	static ui_result_info res;
+	static storage_catch walk_catches[3]; // v0.53: what the walker caught (filled with res.caught_*)
 	static wbx_walk_poke res_poke;
 	static wbx_route res_route;
 	memset(&res, 0, sizeof(res));
@@ -1714,6 +1742,13 @@ static void do_walk_end(void)
 					printf("Caught: #%u Lv %u\n", c.species, c.level);
 					if (res.ncaught < 3) {
 						int k = res.ncaught++;
+						// v0.53: kept for making the legal catch after the link (storage_deliver_catches)
+						walk_catches[k].species = c.species;
+						walk_catches[k].level = c.level;
+						for (int m = 0; m < 4; m++)
+							walk_catches[k].moves[m] = c.moves[m];
+						walk_catches[k].female = (c.variant & 0x20) != 0;
+						walk_catches[k].shiny = (c.flags & 0x02) != 0;
 						res.caught_species[k] = c.species;
 						res.caught_level[k] = c.level;
 						for (int q = 0; q < 3; q++) // the route's own picture + name of that Pokemon
@@ -1799,6 +1834,51 @@ static void do_walk_end(void)
 			// One-slot flow: from the walker slot straight back into its game.
 			if (bank_box == STORAGE_WALK_BOX && bank_slot == STORAGE_WALK_SLOT) {
 				flush_log();
+				// v0.53: the catches first - they are made from the walked Pokemon's game and trainer (its origin
+				// record), which the walker slot still holds until the Pokemon itself goes back
+				if (res.ncaught > 0) {
+					printf("Sending what it caught to its game...\n");
+					refresh();
+					static char cm[400];
+					int got = storage_deliver_catches(bank_box, bank_slot, walk_catches, res.ncaught, cm, sizeof(cm));
+					printf("%s", cm);
+					snprintf(res.caught_msg, sizeof(res.caught_msg), "%s", cm);
+					ledger("  catches: %d of %d into the game", got < 0 ? 0 : got, res.ncaught);
+					// v0.53 (user: "make sure to have a message explaining where items/pokemon are sent to")
+					if (got >= res.ncaught)
+						snprintf(res.sent_line[0], sizeof(res.sent_line[0]),
+						         "The Pok\xC3\xA9mon it caught are in its game's boxes.");
+					else if (got > 0)
+						snprintf(res.sent_line[0], sizeof(res.sent_line[0]),
+						         "%d of %d caught Pok\xC3\xA9mon are in its game, the rest in PocketPKMN.", got,
+						         res.ncaught);
+					else
+						snprintf(res.sent_line[0], sizeof(res.sent_line[0]),
+						         "Caught Pok\xC3\xA9mon wait in PocketPKMN (Game settings).");
+				}
+				if (res.nitems > 0) { // v0.53: Gen 2 -> the PC item storage, X/Y -> the bag
+					printf("Sending what it found to its game...\n");
+					refresh();
+					static storage_found_item fi[13];
+					int ni = res.nitems < 13 ? res.nitems : 13;
+					for (int i = 0; i < ni; i++) {
+						fi[i].id = res.item[i];
+						fi[i].gen2id = res.item_name[i] ? items_gen2 : 0; // course item: the course's numbering
+					}
+					static char im[400];
+					char where[16];
+					int sent = storage_deliver_items(bank_box, bank_slot, fi, ni, where, sizeof(where), im, sizeof(im));
+					printf("%s", im);
+					ledger("  items: %d of %d into the game (%s)", sent < 0 ? 0 : sent, ni, where);
+					if (sent >= ni)
+						snprintf(res.sent_line[1], sizeof(res.sent_line[1]), "The items it found are in %s.", where);
+					else if (sent > 0)
+						snprintf(res.sent_line[1], sizeof(res.sent_line[1]), "%d of %d items are in %s.", sent, ni,
+						         where);
+					else
+						snprintf(res.sent_line[1], sizeof(res.sent_line[1]),
+						         "The items could not be sent (debug view).");
+				}
 				printf("Putting it back into its game...\n");
 				refresh();
 				char m[160];

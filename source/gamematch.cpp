@@ -26,10 +26,12 @@
 #include "enums/Species.hpp"
 #include "pkx/PK6.hpp"
 #include "utils/crypto.hpp"
+#include "sav/Item.hpp"
 
 #include <map>
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <span>
 #include <vector>
@@ -270,6 +272,192 @@ namespace walkerbox
                (blanked ? std::string("; emptied slot = the game's blank Pokemon (") +
                               (found ? "copied from the save" : "built from the trainer data") + ")"
                         : std::string(""));
+        return true;
+    }
+
+    // --- items (v0.53) -------------------------------------------------------------
+    bool addItemToSave(pksm::Sav& sav, uint16_t id, bool gen2Id, std::string& where)
+    {
+        using P = pksm::Sav::Pouch;
+        if (sav.generation() == pksm::Generation::TWO)
+        {
+            pksm::Item2 probe;
+            if (gen2Id)
+                probe.id2(id);
+            else
+                probe.id(id); // national -> Gen 2 (0 if the item does not exist in Gen 2)
+            u16 g2 = probe.id2();
+            if (!g2)
+            {
+                where = "does not exist in this game";
+                return false;
+            }
+            int n = 0;
+            for (auto& pr : sav.pouches())
+                if (pr.first == P::PCItem)
+                    n = pr.second;
+            int empty = -1;
+            for (int s = 0; s < n; s++)
+            {
+                auto it = sav.item(P::PCItem, (u16)s);
+                auto& i2 = static_cast<pksm::Item2&>(*it);
+                if (i2.id2() == g2 && i2.count() < 99)
+                {
+                    i2.count(i2.count() + 1);
+                    sav.item(i2, P::PCItem, (u16)s);
+                    where = "PC";
+                    return true;
+                }
+                if (i2.id2() == 0 && empty < 0)
+                    empty = s;
+            }
+            if (empty < 0)
+            {
+                where = "the PC item storage is full";
+                return false;
+            }
+            auto it = sav.item(P::PCItem, (u16)empty);
+            auto& i2 = static_cast<pksm::Item2&>(*it);
+            i2.id2(g2);
+            i2.count(1);
+            sav.item(i2, P::PCItem, (u16)empty);
+            where = "PC";
+            return true;
+        }
+        if (sav.generation() == pksm::Generation::SIX)
+        {
+            for (auto& [pouch, valid] : sav.validItems())
+            {
+                if (std::find(valid.begin(), valid.end(), (int)id) == valid.end())
+                    continue;
+                int n = 0;
+                for (auto& pr : sav.pouches())
+                    if (pr.first == pouch)
+                        n = pr.second;
+                int empty = -1;
+                for (int s = 0; s < n; s++)
+                {
+                    auto it = sav.item(pouch, (u16)s);
+                    if (it->id() == id && it->count() < it->maxCount())
+                    {
+                        it->count(it->count() + 1);
+                        sav.item(*it, pouch, (u16)s);
+                        where = "bag";
+                        return true;
+                    }
+                    if (it->id() == 0 && empty < 0)
+                        empty = s;
+                }
+                if (empty < 0)
+                {
+                    where = "that bag pocket is full";
+                    return false;
+                }
+                auto it = sav.item(pouch, (u16)empty);
+                it->id(id);
+                it->count(1);
+                sav.item(*it, pouch, (u16)empty);
+                where = "bag";
+                return true;
+            }
+            where = "does not exist in this game";
+            return false;
+        }
+        where = "items: not supported for this game";
+        return false;
+    }
+
+    bool gameMatchItems(pksm::Sav& sav, const uint8_t* before, uint32_t length, std::string& note)
+    {
+        const bool g2 = sav.generation() == pksm::Generation::TWO;
+        const bool g6 = sav.generation() == pksm::Generation::SIX && (length == G6_XY || length == G6_ORAS);
+        if (!g2 && !g6)
+        {
+            note = "items: only Gen 2 and Gen 6 saves";
+            return false;
+        }
+        if (g6)
+        {
+            std::shared_ptr<u8[]> b(new u8[length]);
+            memcpy(b.get(), before, length);
+            auto orig = pksm::Sav::getSave(b, length);
+            if (!orig || !orig->checksumsValid())
+            {
+                note = "the save's checksums were not valid before the edit";
+                return false;
+            }
+        }
+        u8* d = sav.rawData().get();
+        // what the item edit itself changed: one item list (Gen 2 PC list 0x6A bytes; an X/Y pouch)
+        uint32_t lo = length, hi = 0;
+        for (uint32_t i = 0; i < length; i++)
+            if (d[i] != before[i])
+            {
+                lo = std::min(lo, i);
+                hi = i + 1;
+            }
+        if (lo >= hi)
+        {
+            note = "items: nothing changed";
+            return true;
+        }
+        const uint32_t window = g2 ? 0x80 : 0x1000;
+        if (hi - lo > window)
+        {
+            note = "items: the edit spans " + std::to_string(hi - lo) + " bytes (more than one item list)";
+            memcpy(d, before, length);
+            sav.beginEditing();
+            return false;
+        }
+        sav.finishEditing();
+        d = sav.rawData().get();
+        uint32_t sums = 0, other = 0;
+        std::string where;
+        for (uint32_t i = 0; i < length; i++)
+        {
+            // the item list itself: Gen 2's PC list is 0x6A bytes from its count byte (the end marker 0xFF after the
+            // last entry moves when an entry is added); an X/Y pocket lies inside the window
+            if ((i >= lo && i < (g2 ? lo + 0x6A : hi)) || d[i] == before[i])
+                continue;
+            if (g2 && i >= 0x4000)
+                d[i] = before[i]; // box storage (PKSM-Core recopies the open box) and the backup copy's checksum: the
+                                  // game changes neither when it stores an item
+            else if ((g2 && i >= 0x2000 && i < 0x4000) || (g6 && i >= length - 0x200))
+                sums++; // Gen 2 main checksum / X/Y block table checksum
+            else
+                other++;
+            if (where.size() < 80)
+            {
+                char b[16];
+                snprintf(b, sizeof(b), " %x", i);
+                where += b;
+            }
+        }
+        if (other || sums > 2)
+        {
+            note = "items: the save changed more than the item list and its checksum (" + std::to_string(other) + "/" +
+                   std::to_string(sums) + " bytes; list " + std::to_string(lo) + "-" + std::to_string(hi) + ";" +
+                   where + ")";
+            memcpy(d, before, length);
+            sav.beginEditing();
+            return false;
+        }
+        // Crystal keeps a backup copy of its game data (file 0x1209, the same 0xB7A bytes as 0x2009, checksum at
+        // 0x1F0D; identical in the user's own Crystal saves) and the game writes both copies whenever it saves - so
+        // the backup gets the new item list too (PKHeX checks it). Gold / Silver's backup is not one copy and is left
+        // as it is (as PKSM-Core / PKHeX do).
+        bool backup = false;
+        if (g2 && sav.version() == pksm::GameVersion::C && length >= 0x8000)
+        {
+            memcpy(d + 0x1209, d + 0x2009, 0x2B83 - 0x2009);
+            d[0x1F0D] = d[0x2D0D];
+            d[0x1F0E] = d[0x2D0E];
+            backup = true;
+        }
+        sav.beginEditing();
+        note = std::string(g2 ? "Gen 2" : "Gen 6") + (backup ? " (+ Crystal's backup copy)" : "") +
+               " items: only the item list (" + std::to_string(hi - lo) +
+               " bytes) and its checksum";
         return true;
     }
 

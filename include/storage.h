@@ -80,6 +80,29 @@ int storage_walk_mark(int box, int slot, int walking, unsigned long fingerprint,
 const char *storage_take_bank_note(void);
 // v0.50: English species name ("" if unknown). Not for IR time (reads romfs).
 void storage_species_name(int species, char *out, int out_size);
+
+// v0.53: a Pokemon the walker caught (from its caught list)
+typedef struct storage_catch {
+	int species, level;
+	unsigned moves[4];
+	int female, shiny;
+} storage_catch;
+// Makes each catch a legal Pokemon of the walked Pokemon's game (PKHeX templates, walk_catch.cpp) for that save's
+// trainer and moves it into that game (first free box); one that cannot go in waits in the PocketPKMN box.
+// from_box/slot = the walked Pokemon (still in the bank: its origin record and format are used). msg = one line per
+// catch. Returns how many went into the game, or -1 (msg says why). Not for IR time.
+int storage_deliver_catches(int from_box, int from_slot, const storage_catch *catches, int n, char *msg,
+                            int msg_size);
+
+// v0.53: an item the walk found; gen2id = the id is a Gen 2 item number (a GSC course item), else national
+typedef struct storage_found_item {
+	unsigned id;
+	int gen2id;
+} storage_found_item;
+// Puts the items into the walked Pokemon's game: Gen 2 = the PC item storage, X/Y = the bag (no item PC there).
+// where = "the PC" / "the bag" if any went in. msg = a line per item that did not. Returns how many went in, or -1.
+int storage_deliver_items(int from_box, int from_slot, const storage_found_item *items, int n, char *where,
+                          int where_size, char *msg, int msg_size);
 // v0.50: item name ("" if unknown); gen2 = 1 for Gen 2 item ids (GSC courses), else national ids. Not for IR time.
 void storage_item_name(int gen2, int id, char *out, int out_size);
 // v0.50 (audit B2): the first bank slot marked walking: 1 with box/slot/fingerprint, 0 if none.
@@ -98,7 +121,11 @@ typedef struct storage_game_info {
 	int kind;         // 0 Virtual Console (SD), 1 game card, 2 GBA (inject)
 	int has_routes;   // 0 -> "Not yet compatible"
 	int boxes, per_box;
+	int badges, hof;  // v0.52: badge count, Hall of Fame entered (course unlocks)
 } storage_game_info;
+
+// v0.52: the badges / Hall of Fame of a game seen by the last storage_games_scan (kept after the release). 1 = known.
+int storage_game_progress(unsigned long long title_id, int *badges, int *hof);
 
 // Scans the saves (also loads the Pokemon data and the bank). Keeps them until storage_games_release.
 // Returns the count (0 = none found) or -1 with why.

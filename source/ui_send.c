@@ -24,6 +24,24 @@ static const char *course_name(const ui_send_info *in, int i)
 	return in->rf && in->rf->ncourse > 0 ? in->rf->course[i].name : "Test Path";
 }
 
+// v0.52 (user: "block locked courses", "Greyed with a lock"): a course the save has not reached yet
+static int locked(const ui_send_info *in, int i)
+{
+	return in->rf && in->rf->ncourse > 0 && in->progress_known &&
+	       !routes_unlocked(in->rf->course[i].unlock, in->badges, in->hof, in->watts);
+}
+
+#define UI_LOCKED_TEXT C2D_Color32(150, 162, 146, 255)
+
+// a small padlock, its body's top-left at (x, y)
+static void lock_icon(float x, float y, u32 c)
+{
+	ui_rect(x + 1.5f, y - 5, 1.5f, 5, c);
+	ui_rect(x + 6, y - 5, 1.5f, 5, c);
+	ui_rect(x + 1.5f, y - 6, 6, 1.5f, c);
+	ui_rect(x, y, 9, 7, c);
+}
+
 static void draw(const ui_send_info *in, ui_image *big, int frame, int animate, int sel, int first, int ev)
 {
 	char t[160];
@@ -33,25 +51,24 @@ static void draw(const ui_send_info *in, ui_image *big, int frame, int animate, 
 	ui_lcd(138, 42, 64, 48, 2);
 	ui_image_draw(&big[animate ? frame : 0], 138, 42, 2);
 	ui_lcd_grid(138, 42, 64, 48, 2);
+	// v0.52 (user: "this box feels very messy"): three columns - a small grey label, the value in bold, a short note
+	// under it - instead of three bulleted sentences; the route is on the bottom screen already
 	ui_box(UI_PANEL, 20, 172, 376, 62);
-	ui_rect(30, 183, 5, 5, UI_BAND);
-	ui_text(39, 185, in->line1, 11, UI_TEXT, 0, 'l', 1);
-	if (ev >= 0)
-		snprintf(t, sizeof(t), "Training: %s  (+1 EV every 20 steps)", k_ev_long[ev]);
-	else
-		snprintf(t, sizeof(t), in->ev_allowed ? "Training: off" : "Training: none (no EVs in Gen 1/2)");
-	ui_rect(30, 201, 5, 5, UI_BAND);
-	ui_text(39, 203, t, 11, UI_TEXT, 0, 'l', 1);
-	if (in->rf && in->rf->ncourse > 0) {
-		const route_course *c = &in->rf->course[sel];
-		char u[48];
-		routes_unlock_text(c->unlock, u, sizeof(u));
-		snprintf(t, sizeof(t), "Route: %s  \xC2\xB7  %s", c->name, u);
-	} else {
-		snprintf(t, sizeof(t), "Route: Test Path (this Pok\xC3\xA9mon's game is not known)");
+	const float cx[3] = { 36, 160, 290 };
+	ui_text(cx[0], 186, "Pok\xC3\xA9mon", 9, UI_SUB, 0, 'l', 1);
+	ui_text(cx[0], 202, in->mon[0] ? in->mon : in->line1, 12, UI_TEXT, 1, 'l', 1);
+	ui_text(cx[1], 186, "From", 9, UI_SUB, 0, 'l', 1);
+	ui_text(cx[1], 202, in->game[0] ? in->game : "-", 12, UI_TEXT, 1, 'l', 1);
+	if (in->trainer[0]) {
+		snprintf(t, sizeof(t), "Trainer %s", in->trainer);
+		ui_text(cx[1], 218, t, 9, UI_SUB, 0, 'l', 1);
 	}
-	ui_rect(30, 219, 5, 5, UI_BAND);
-	ui_text(39, 221, t, 11, UI_TEXT, 0, 'l', 1);
+	ui_text(cx[2], 186, "EV training", 9, UI_SUB, 0, 'l', 1);
+	ui_text(cx[2], 202, ev >= 0 ? k_ev_long[ev] : in->ev_allowed ? "Off" : "None", 12, UI_TEXT, 1, 'l', 1);
+	ui_text(cx[2], 218, ev >= 0 ? "+1 EV / 20 steps" : in->ev_allowed ? "" : "No EVs in Gen 1/2", 9, UI_SUB, 0, 'l', 1);
+	ui_rect(cx[1] - 12, 182, 1, 40, C2D_Color32(176, 208, 156, 255));
+	ui_rect(cx[2] - 12, 182, 1, 40, C2D_Color32(176, 208, 156, 255));
+	(void)sel;
 
 	ui_target_bottom();
 	ui_band(10, 6, 300, 22, "Route", 12, 0);
@@ -60,15 +77,20 @@ static void draw(const ui_send_info *in, ui_image *big, int frame, int animate, 
 		int i = first + r;
 		float y = ROW_Y + r * ROW_H;
 		ui_box(i == sel ? UI_GLOSS3_SEL : UI_GLOSS3, 14, y, 292, ROW_H - 6);
-		ui_text(24, y + (ROW_H - 6) / 2.0f, course_name(in, i), 12, UI_TEXT, 1, 'l', 1);
+		int lk = locked(in, i);
+		float my = y + (ROW_H - 6) / 2.0f;
+		if (lk)
+			lock_icon(24, my - 2, UI_LOCKED_TEXT);
+		ui_text(lk ? 40 : 24, my, course_name(in, i), 12, lk ? UI_LOCKED_TEXT : UI_TEXT, 1, 'l', 1);
 		if (in->rf && in->rf->ncourse > 0) { // v0.43: the course's unlock instead of 3 of its Pokemon
 			char u[48];
 			routes_unlock_text(in->rf->course[i].unlock, u, sizeof(u));
-			ui_text(298, y + (ROW_H - 6) / 2.0f, u, 9, UI_SUB, 0, 'r', 1);
+			ui_text(298, my, u, 9, lk ? UI_LOCKED_TEXT : UI_SUB, 0, 'r', 1);
 		}
 	}
+	// v0.52 (user: the "1 / 18" was "too close" to the course boxes): in the Route band, right side
 	snprintf(t, sizeof(t), "%d / %d", sel + 1, n);
-	ui_text(306, ROW_Y + ROWS * ROW_H - 2, t, 8, UI_SUB, 0, 'r', 1);
+	ui_text(300, 17, t, 9.5f, UI_WHITE, 1, 'r', 1);
 	ui_band(10, 110, 300, 22, "Train an EV on this walk", 12, 0);
 	for (int k = 0; k < 7; k++) {
 		float x = 14 + k * 42;
@@ -77,10 +99,19 @@ static void draw(const ui_send_info *in, ui_image *big, int frame, int animate, 
 		ui_text(x + 18.5f, 149, k_ev_short[k], 10, (k > 0 && !in->ev_allowed) ? C2D_Color32(170, 180, 164, 255) : UI_TEXT,
 		        1, 'c', 1);
 	}
-	ui_box(UI_GLOSS3_SEL, 10, 172, 300, 32);
-	ui_rect(13, 176, 3, 24, C2D_Color32(70, 130, 62, 255));
-	ui_text(160, 188, "Send to walker", 12, UI_TEXT, 0, 'c', 1);
-	ui_key(292, 188, 'A', 8);
+	if (locked(in, sel)) { // v0.52: no sending on a locked course - the button says why
+		char u[48];
+		routes_unlock_text(in->rf->course[sel].unlock, u, sizeof(u));
+		snprintf(t, sizeof(t), "Locked \xC2\xB7 opens %s%s", u[0] == 'A' ? "a" : "", u[0] == 'A' ? u + 1 : u);
+		ui_box(UI_GLOSS3, 10, 172, 300, 32);
+		lock_icon(28, 186, UI_LOCKED_TEXT);
+		ui_text(164, 188, t, 11, UI_LOCKED_TEXT, 1, 'c', 1);
+	} else {
+		ui_box(UI_GLOSS3_SEL, 10, 172, 300, 32);
+		ui_rect(13, 176, 3, 24, C2D_Color32(70, 130, 62, 255));
+		ui_text(160, 188, "Send to walker", 12, UI_TEXT, 0, 'c', 1);
+		ui_key(292, 188, 'A', 8);
+	}
 	static const char *const l[] = { "B Back" }, *const rr[] = { "X Info", "L Route", "R EV" };
 	static const char *const rr_test[] = { "L Route", "R EV" };
 	if (in->rf && in->rf->ncourse > 0)
@@ -174,7 +205,13 @@ static void route_info(const ui_send_info *in, const route_course *c)
 		// About This Route"): the two headings bold, their values plain; more room for the description
 		(void)fav;
 		ui_text(136, 50, "Opens", 10.5f, UI_TEXT, 1, 'l', 0);
-		ui_text(136, 64, u, 10.5f, UI_TEXT, 0, 'l', 0);
+		if (in->progress_known && !routes_unlocked(c->unlock, in->badges, in->hof, in->watts)) { // v0.52
+			char lu[64];
+			snprintf(lu, sizeof(lu), "%s  (locked)", u);
+			lock_icon(136, 68, UI_ACCENT);
+			ui_text(150, 64, lu, 10.5f, UI_ACCENT, 0, 'l', 0);
+		} else
+			ui_text(136, 64, u, 10.5f, UI_TEXT, 0, 'l', 0);
 		// v0.46: room for a route description (user: "there should be a bar for route description ... I don't have
 		// them written now anyways") - the course's "desc=" text from the route file
 		ui_text(136, 84, "About this route", 10.5f, UI_TEXT, 1, 'l', 0);
@@ -257,7 +294,7 @@ int ui_send_run(const ui_send_info *in, int *course, int *ev)
 			first = sel;
 		if (sel >= first + ROWS)
 			first = sel - ROWS + 1;
-		if (d & KEY_A) {
+		if ((d & KEY_A) && !locked(in, sel)) { // v0.52: A does nothing on a locked course
 			*course = in->rf && in->rf->ncourse > 0 ? sel : -1;
 			*ev = e;
 			result = 1;

@@ -68,6 +68,14 @@ int main(void)
 	CHECK(routes_file_for(0x0004000000172800ULL, 2, &v) && !strcmp(routes_file_for(0x0004000000172800ULL, 2, &v), "gsc"), "Crystal -> gsc");
 	CHECK(!routes_file_for(0x0004000000171100ULL, 1, &v), "Blue -> no routes");
 	CHECK(!routes_file_for(0x000400000011C500ULL, 6, &v), "Alpha Sapphire -> no routes");
+	// v0.52: course unlocks
+	CHECK(routes_unlocked("start", 0, 0, 0), "start is always open");
+	CHECK(!routes_unlocked("badges=3", 2, 0, 0) && routes_unlocked("badges=3", 3, 0, 0) &&
+	      routes_unlocked("badges=3", 16, 0, 0), "badges=3 opens at 3");
+	CHECK(!routes_unlocked("hof", 8, 0, 99999) && routes_unlocked("hof", 8, 1, 0), "hof needs the Hall of Fame");
+	CHECK(!routes_unlocked("hof watts=5000", 16, 0, 99999) && !routes_unlocked("hof watts=5000", 16, 1, 4999) &&
+	      routes_unlocked("hof watts=5000", 16, 1, 5000), "hof watts=5000 needs both");
+	CHECK(routes_unlocked("something new", 0, 0, 0), "unknown unlock text stays open");
 	printf(fails ? "ROUTE TESTS: %d FAILED\n" : "route tests passed (%d failures)\n", fails);
 	return fails != 0;
 }
