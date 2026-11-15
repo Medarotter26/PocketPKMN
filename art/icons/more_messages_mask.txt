@@ -1,0 +1,12 @@
+; 0x0648 AND mask for the last 8 columns of a message (8 bytes, one per
+; column, the same byte is applied to both bitplanes). NOT an image.
+; '#' = clear the pixel (bit 0, white), '.' = keep it (bit 1).
+; Clears a 1-px border around the 0x0638 mark so it stays readable.
+........
+........
+########
+########
+########
+.######.
+..####..
+...##...

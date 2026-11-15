@@ -1,0 +1,10 @@
+; 0x0650 medicine vial - WalkerBox original art (8x8)
+; drawn by tools/draw_icons.py (rerun it to regenerate this file)
+..####..
+...##...
+..#..#..
+.#.-..#.
+.#---+#.
+.#-.-+#.
+.#--++#.
+..####..

@@ -1,0 +1,10 @@
+; 0x05A8 arrow right, inverted - WalkerBox original art (8x8)
+; drawn by tools/draw_icons.py (rerun it to regenerate this file)
+########
+####.###
+####..##
+#......#
+#......#
+####..##
+####.###
+########

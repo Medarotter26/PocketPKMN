@@ -1,0 +1,5 @@
+--atlas -f rgb565 -z auto
+ui_bgbot_img.png
+ui_bgbot_img1.png
+ui_bgbot_img2.png
+ui_bgbot_img3.png

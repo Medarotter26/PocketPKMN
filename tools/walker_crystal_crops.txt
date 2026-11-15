@@ -1,0 +1,18 @@
+# Crystal sprites taller than 48 rows (80 of them; tools/walker_crystal_heads.py sheets):
+# "dex y0" = first row of the shared box shown, so the FACE is in view (user: "now do
+# the crops", 2026-11-15; the rule from the Gen 5-7 review: "cropped so that the face is
+# mostly visible"). The other 66 tall ones have the face near the top: top kept (y0 0).
+003 3
+042 6
+047 6
+057 4
+091 8
+099 4
+103 6
+111 3
+119 7
+146 7
+169 3
+189 5
+208 8
+237 5

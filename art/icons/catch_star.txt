@@ -1,0 +1,10 @@
+; 0x2040 small star for a catch - WalkerBox original art (8x8)
+; drawn by tools/draw_icons.py (rerun it to regenerate this file)
+...#....
+..###...
+##-###..
+.#####+.
+..###++.
+.##+##..
+#.++.+#.
+.+.....+

@@ -1,0 +1,10 @@
+; 0x0470 ball, light version (event Pokemon) - WalkerBox original art (8x8)
+; drawn by tools/draw_icons.py (rerun it to regenerate this file)
+..++++..
+.+.---+.
++.-++--+
++++..+++
++..++..+
++......+
+.+...-+.
+..++++..

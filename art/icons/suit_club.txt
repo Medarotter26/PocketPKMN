@@ -1,0 +1,10 @@
+; 0x04E8 card face: club - WalkerBox original art (8x8)
+; drawn by tools/draw_icons.py (rerun it to regenerate this file)
+..###...
+..#-#+..
+##.#.##.
+#######+
+##+#+##+
+.++#+.++
+..###...
+...+++..

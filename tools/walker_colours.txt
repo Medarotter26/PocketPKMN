@@ -1,0 +1,420 @@
+# Per-Pokemon colour fixes for tools/walker_sprites.py: "dex RRGGBB shade"
+# (shade 0 white, 1 light grey, 2 dark grey, 3 black). A listed colour of that
+# Pokemon's LARGE source sprite always gets this shade (the automatic rules and the
+# detail rule leave it alone). From the user's review, 2026-11-14.
+
+# Patrat (user's own edit as the target, measured): the automatic look unchanged,
+# only the white gap left of the belly filled with the dark grey of the hips.
+504 fill 23 30 2
+
+# Pansage: green hair darker than the face
+511 18a452 2
+511 087331 2
+511 83cd9c 1
+511 ffcd7b 0
+511 cda45a 1
+511 735220 2
+
+# Krokorok: tan body light, black stripes, pink belly light
+552 c59c5a 1
+552 debd83 0
+552 8b7331 2
+552 ee94a4 0
+552 cd737b 1
+552 523910 3
+
+# Carracosta: "needs darker shell"; blue body lighter
+565 627383 2
+565 414a5a 3
+565 293139 3
+565 293962 3
+565 4a94d5 1
+565 39739c 2
+565 5aace6 1
+565 a4cdd5 0
+
+# Zorua ("still bad" both all-dark and all-light): dark grey body, black shadows,
+# red crest / eye markings light grey so they stand out, white eyes, dark irises.
+570 5a5a73 2
+570 202031 3
+570 414152 3
+570 313141 3
+570 ac1041 1
+570 6a2039 2
+570 18b4b4 3
+570 318383 3
+
+# Gothitelle: dark dress, pale face light
+576 525252 2
+576 393939 3
+576 313131 3
+576 7b7b7b 1
+576 b4b4b4 1
+576 e6acde 0
+576 bd83a4 1
+576 945a7b 2
+
+# Deerling: "head flower needs to be darker"
+# (review 5: "why dont you make deerling's head bow white instead?")
+585 ffde52 0
+585 cd9c08 1
+
+# Scolipede: "circles dont show" - red body light grey, purple rings dark grey
+545 9c1041 1
+545 c5185a 1
+545 ac297b 1
+545 8b399c 2
+545 6a206a 2
+545 83084a 2
+
+# Darmanitan: "shadow doesn't need to be dark black, it can be dark grey"
+555 621818 2
+555 8b1829 2
+555 bd0000 2
+
+# Zekrom: "looks bad still" - nearly all near-black colours. A darker version hid
+# the face details; the user then chose option B: main body light grey, shading
+# dark grey, deepest shadow black, highlights white, red eye black with its white
+# glint, blue tail tip graded.
+644 52525a 0
+644 313139 1
+644 202029 2
+644 181820 2
+644 101010 3
+644 940000 3
+644 cd0000 3
+644 decdcd 0
+644 006abd 2
+644 00c5ff 1
+644 6af6ff 0
+
+# ---- Review 5 (user's notes in RESUME.md "Review 5") ----
+# Pignite: "small stray white specks - make them dark grey, same with the bottom of
+# the arms" (the white is also its eye colour, so by area: around each arm)
+499 paint 12 11 23 24 2
+499 paint 50 10 61 24 2
+# Serperior: "move over and erase the tail" (shift in walker_crops.txt)
+497 erase 50 0 63 47
+497 erase 42 30 63 47
+# Sigilyph: stray pixel (bottom-left corner)
+561 erase 0 40 8 47
+# Beartic: stray pixel (cut-off bit at the left edge)
+614 erase 0 12 3 24
+# Aurorus: stray pixels to the left
+699 erase 0 0 4 47
+# Pyukumuku: review 6 "change its colours back" - the shades it had in the reviewed
+# version (when its source was still the whole Smogon sheet), read back from out_v1.
+771 404040 2
+771 d94174 1
+771 262626 3
+771 992e52 2
+771 f8f8f8 0
+771 73223d 2
+771 bfbfbf 1
+771 737373 1
+771 595959 2
+771 1a1a1a 3
+# Bewear: bottom dark grey (the lower body)
+760 595959 2
+760 262626 3
+# Emboar: flames hard to read - flames light / white, black body dark grey
+500 e63129 1
+500 eebd08 0
+500 ee6220 1
+500 a43931 2
+500 7b1810 2
+500 313131 2
+500 202020 3
+# Liepard: purple and yellow were the same grey
+510 836294 2
+510 5a4173 3
+510 312039 3
+510 f6d541 0
+510 cda418 1
+510 5a5210 2
+510 e67b9c 1
+# Musharna: pink and purple were the same grey
+518 de7bbd 1
+518 bd73ac 1
+518 ffc5cd 0
+518 cd9c94 1
+518 947bde 2
+518 ac5273 2
+518 6a62a4 2
+# Unfezant: the dark grey on its pink parts looks bad -> light grey
+521 ff417b 1
+521 b4185a 2
+521 7b2052 2
+# Excadrill: drill was the same grey as the body - body dark, drill light / white
+530 5a4a41 2
+530 413129 3
+530 a4a4a4 1
+530 d5d5d5 0
+530 bd4141 2
+# Whimsicott: green horns looked like the body - body light, horns dark
+547 946a41 1
+547 52a44a 2
+547 417b41 2
+547 184a18 3
+# (review 6: "change the black on the bottom of whimsicott to dark grey")
+547 523929 2
+# Yamask: eye missing - eye light, body dark grey
+562 ff0000 1
+562 ac0000 2
+562 525252 2
+562 313131 3
+# Zoroark: done by hand like Zorua - body dark grey, mane light grey, lines black
+571 62626a 2
+571 4a4a52 2
+571 ac1041 1
+571 7b2941 2
+571 202031 3
+571 293141 3
+571 4a1029 3
+# Gothita / Gothorita: faces were black
+574 cd8bbd 0
+574 946a83 1
+574 5a314a 2
+574 7b4a41 2
+574 084a8b 3
+574 39a4ff 1
+575 cd8bbd 0
+575 946a83 1
+575 414141 2
+575 292929 3
+# Sawsbuck: body light grey
+586 7b5a31 1
+586 a47b4a 0
+586 623920 2
+# Lampent: the arms' lighter black -> light grey
+608 4a4a4a 1
+608 313131 2
+# Fraxure: green top vs grey face separated
+611 4a8b4a 2
+611 416a39 2
+611 314a29 3
+611 737373 1
+611 9c9c9c 0
+611 5a5a52 2
+# Cubchoo: was almost all white - light blue body light grey
+613 94d5ee 1
+613 7bace6 1
+613 73a4b4 2
+613 4a7373 2
+613 c5cdde 0
+# Accelgor: red helmet topper dark grey, the darker part on top light grey, blue body dark grey with black lines
+# (review 6: "invert the colors on accelgor's head")
+617 ff4a7b 1
+617 c5396a 2
+617 732931 2
+617 6a83c5 2
+617 5a6283 2
+617 29396a 3
+617 41b45a 1
+# Hydreigon: shading on its dark grey / black body
+635 525252 1
+635 413941 2
+635 292029 3
+635 5a83cd 1
+635 395a9c 2
+635 bd527b 1
+635 8b2962 2
+# Tornadus: look more like Thundurus (white cloud, light body, dark tail / markings)
+641 ffffff 0
+641 b4b4bd 1
+641 4a9c41 1
+641 417339 2
+641 294a31 3
+641 8341ac 2
+641 5a3173 3
+641 412052 3
+641 deb46a 0
+641 ac7b4a 1
+# Scatterbug: dark and light were inverted
+664 747474 1
+664 4e4e4e 2
+664 4d4d4d 2
+664 363636 3
+# (review 6: eyes looked weird - yellow eye ring white, brown rim dark grey)
+664 d1bf6b 0
+664 9d7247 2
+# Litleo / Pyroar: colouring
+# (review 7, from the user's own edit: body as in review 5, only the red tuft light grey)
+667 70655d 2
+667 47403b 3
+667 d93636 1
+667 f2bc85 0
+667 bf9469 1
+# its nose is the same red as the tuft: the user then asked to change the nose too,
+# so it follows the tuft (light grey) - no exception.
+# Pyroar: review 6 "pyroar looked better before" -> no colour lines (back to the
+# reviewed version, which "touch" reproduces exactly).
+# Floette: flower with the lighter shading
+670 d94c4c 1
+670 ff7373 0
+670 802d2d 2
+# Gogoat: grass neck shading
+673 2fb657 1
+673 21833e 2
+673 144f26 3
+# Hawlucha
+701 3d997a 2
+701 52cca3 1
+701 296652 3
+701 d93651 2
+701 a6293e 3
+# (review 7, from the user's own edit: the orange markings white, yellow left as it was)
+701 f28b24 0
+# Gourgeist: colouring
+711 f49670 1
+711 deac5b 0
+711 894331 2
+711 61532d 2
+711 4c3a1b 3
+# Yveltal: review 6 "yveltal looks worse" -> no colour lines (back to before).
+# Zygarde: colouring
+718 afcf4f 0
+718 7f9f1f 1
+718 4f7f1f 2
+718 564748 2
+718 38302e 3
+718 241813 3
+# Volcanion: the dividing line in its body
+721 e54545 1
+721 b33636 2
+721 802626 3
+# Torracat: dark and light were inverted
+726 f26b30 1
+726 5f564b 2
+726 b83422 2
+726 703321 3
+# Brionne: body darker so the skirt can be white + light grey
+729 1eb9ee 2
+729 2d8ec4 2
+729 326187 3
+729 bfbfbf 1
+729 808080 1
+729 f8f8f8 0
+# Bewear: bottom dark grey
+760 404040 2
+# Hakamo-o: used no light grey
+783 c2c1c0 1
+783 97938c 2
+# (review 6: "lost its mouth" - the mouth line black again)
+783 69625c 3
+783 f4da42 0
+783 fff5ae 0
+783 957509 2
+# Zeraora: colouring
+807 f9e455 0
+807 daa936 1
+807 9d682d 2
+807 484f57 2
+807 727678 1
+807 2394d8 2
+807 5bd0f2 1
+
+# ---- Small sprites (menu icons) that "still need work" (user, 2026-11-14): one grey per
+# icon colour, no automatic detail rule (it made speckle on the icons' fine shading) ----
+# Emboar: dark body, red flames light grey, orange / yellow flames white
+500 small 63635a 2
+500 small 424242 3
+500 small d66342 1
+500 small f79429 0
+500 small f7f729 0
+500 small bda542 1
+500 small bdbdbd 1
+500 small ffffff 0
+# Solosis / Duosion: dark outline, olive ring light grey, green cell white, cheeks light grey
+577 small 414141 3
+577 small 62625a 2
+577 small 737373 2
+577 small 7b9c4a 1
+577 small 9ccd4a 1
+577 small bda45a 1
+577 small 94f64a 0
+577 small d5d56a 0
+577 small f6f6ac 0
+577 small ffffff 0
+577 small f694f6 1
+577 small ee739c 2
+578 small 414141 3
+578 small 62625a 2
+578 small 737373 2
+578 small 7b9c4a 1
+578 small 9ccd4a 1
+578 small 94f64a 0
+578 small ffffff 0
+578 small f694f6 1
+578 small ee739c 2
+# Fraxure: green head light, grey body dark grey, red details black
+611 small 9ccd4a 0
+611 small 7b9c4a 1
+611 small 737373 2
+611 small 62625a 2
+611 small 414141 3
+611 small e64a29 3
+611 small bdbdbd 0
+# Pawniard: dark body, red head light grey, blades white
+624 small 62625a 2
+624 small 414141 3
+624 small d56241 1
+624 small 838373 2
+624 small bdbdbd 1
+624 small ffffff 0
+624 small f6f629 0
+624 small f69429 1
+# Clawitzer (58-colour icon; the main ones): blue body light grey, highlights white,
+# deep blue dark grey, dark parts black, gold white / light grey
+693 small 3183fe 1
+693 small 3082fb 1
+693 small 62a4e6 1
+693 small 83cdfe 0
+693 small 84ceff 0
+693 small 295abc 2
+693 small 525252 2
+693 small 626262 2
+693 small 2c2c2c 3
+693 small 313131 3
+693 small 2e2e2f 3
+693 small 302f2c 3
+693 small feb418 0
+693 small f2ac17 0
+693 small b48610 1
+693 small ae8110 1
+# Mudsdale: dark body, red markings / mane light grey, light parts white
+# (user: "750 just needs to be fixed now" - the body was one flat dark grey: mud patches
+# now light grey, orange markings white, dark red light grey, neck-mane light / dark)
+750 small 212121 3
+750 small 314263 2
+750 small 4a5a73 1
+750 small 525252 2
+750 small 7b5a4a 2
+750 small 7394b5 1
+750 small ef6b4a 0
+750 small ad6b52 1
+750 small bd4231 1
+750 small efa584 0
+750 small ffffff 0
+# Lurantis: pink body light grey, pale pink white, dark red dark grey, green light grey
+754 small 212121 3
+754 small 313131 3
+754 small 525252 2
+754 small c55263 2
+754 small a56363 2
+754 small f77b7b 1
+754 small de9ca5 1
+754 small 6bc5a5 1
+754 small ffc5c5 0
+754 small c5c5c5 0
+754 small ffffff 0
+# Marshadow: body light grey, shadow dark grey, eyes white
+802 small 212121 3
+802 small 424242 3
+802 small 525252 2
+802 small 636363 2
+802 small 737373 1
+802 small f76342 0
+802 small ffef7b 0
+
+# Chespin: "was fine before" -> not in walker_review.txt, so the reviewed version is kept.

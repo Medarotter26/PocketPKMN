@@ -1,0 +1,25 @@
+--atlas -f rgba8888 -z auto
+ui_panel.png
+ui_gloss6.png
+ui_gloss6_sel.png
+ui_gloss3.png
+ui_gloss3_sel.png
+ui_info.png
+ui_iconbox.png
+ui_gameicon.png
+ui_lcdframe.png
+ui_band20_green.png
+ui_band20_red.png
+ui_band22_green.png
+ui_band22_red.png
+ui_key7.png
+ui_key8.png
+ui_key10.png
+ui_stripe.png
+ui_status.png
+ui_footer.png
+ui_connect_scene.png
+ui_connect_scene_a0.png
+ui_connect_scene_a1.png
+ui_connect_scene_a2.png
+ui_connect_scene_a3.png

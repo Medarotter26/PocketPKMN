@@ -1,0 +1,10 @@
+; 0x0508 arrow up, offset (moved 1 px up) - WalkerBox original art (8x8)
+; drawn by tools/draw_icons.py (rerun it to regenerate this file)
+...##...
+..####..
+.######.
+..+##+++
+...##+..
+...##+..
+....++..
+........

@@ -1,0 +1,17 @@
+# Per-species shift of the picture window (tools/walker_sprites.py):
+# "dex dx dy" (large picture) / "dex small dx dy" (small): the window moves dx right
+# and dy down, so the Pokemon moves LEFT / UP in its picture. Review 5, 2026-11-14.
+# Serperior: "move over" (and its tail is erased, walker_colours.txt)
+497 -8 0
+# Crustle: "cant see crustle's face" - window down to the face
+558 0 15
+# Reuniclus: "can be centered better" - face to the middle
+579 -16 0
+# Ferrothorn: "face is not centered"
+598 -2 18
+# Chandelure: "can be raised a little"
+609 0 8
+# Aurorus: "can be raised a little"
+699 0 6
+# Pyukumuku: review 6 "lower it all the way to the bottom" -> no shift (it stands on
+# the bottom edge by default).

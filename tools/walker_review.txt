@@ -1,0 +1,91 @@
+# Which Pokemon the converter may change (user, 2026-11-14: "There are quite a few
+# that WERE NOT A PART OF THE 40 LISTED BEFORE that you've changed. Revert those
+# back."). Every Pokemon NOT listed here keeps the reviewed version byte for byte
+# (art_src/sprites5to7/out_v1, copied by convert with WBX_FROZEN).
+#   crop   = flagged for crop / stray bits: face-centred crop + stray-bit erase,
+#            ORIGINAL colour rules
+#   colour = flagged for colour: new colour rules + tools/walker_colours.txt
+
+# First review (36 screenshots), crop / stray-bit problems
+499 crop
+503 crop
+510 crop
+518 crop
+521 crop
+526 crop
+528 crop
+545 crop
+555 crop
+591 crop
+611 crop
+621 crop
+644 crop
+646 crop
+647 crop
+663 crop
+687 crop
+693 crop
+716 crop
+717 crop
+721 crop
+783 crop
+792 crop
+
+# Review 5 (2026-11-14): not on the earlier list, so "touch" = the reviewed version
+# exactly + only the tweaks listed for it in walker_colours.txt / walker_crops.txt.
+#   touch  = original window, original colours, no stray-bit erase, plus listed tweaks
+497 touch
+500 touch
+530 touch
+547 touch
+558 touch
+561 touch
+562 touch
+575 touch
+579 touch
+586 touch
+598 touch
+608 touch
+609 touch
+613 touch
+614 touch
+617 touch
+635 touch
+641 touch
+664 touch
+667 touch
+668 touch
+670 touch
+673 touch
+699 touch
+701 touch
+711 touch
+718 touch
+726 touch
+729 touch
+760 touch
+771 touch
+807 touch
+
+# Colour (the colour sheet the user reviewed, plus the ones named after it)
+504 colour
+509 colour
+511 colour
+519 colour
+520 colour
+522 colour
+524 colour
+529 colour
+539 colour
+543 colour
+552 colour
+554 colour
+565 colour
+570 colour
+571 colour
+574 colour
+576 colour
+585 colour
+722 colour
+789 colour
+802 colour

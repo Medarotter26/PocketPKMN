@@ -1,0 +1,18 @@
+; 0x18F0 contrast demonstrator (drawn several times side by side) 8x16
+; WalkerBox original art: a shade staircase black / dark / light
+........
+........
+#######.
+#######.
+#######.
+#######.
++++++++.
++++++++.
++++++++.
++++++++.
+-------.
+-------.
+-------.
+-------.
+........
+........

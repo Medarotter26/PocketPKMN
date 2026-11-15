@@ -1,0 +1,11 @@
+# Small sprites made with the new icon conversion (icon_frames in walker_sprites.py):
+# the user's pick, 2026-11-14 ("2": of the 56 candidates, all except the 11 that
+# stay as they were and the 9 that still need work). Large sprites are not affected.
+495 497 512 517 520 521 541 553 555 558
+560 567 569 576 586 587 591 596 622 631
+637 706 720 725 739 753 758 761 765 782
+788 790 791 795 801 806
+# "Still need work" (user): new icon conversion + hand-set icon colours ("dex small ..."
+# in walker_colours.txt), applied 2026-11-14 for the user's review:
+500 577 578 611 624 693 750 754 802
+# Stay as they were (user): 566 626 653 686 735 740 746 767 769 792 798

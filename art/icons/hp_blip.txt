@@ -1,0 +1,10 @@
+; 0x2030 HP bar segment (4 make a bar) - WalkerBox original art (8x8)
+; drawn by tools/draw_icons.py (rerun it to regenerate this file)
+........
+######..
+#---+#+.
+#-+++#+.
+#-+++#+.
+#++++#+.
+######+.
+.++++++.
