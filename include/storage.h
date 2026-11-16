@@ -88,12 +88,29 @@ typedef struct storage_catch {
 	int female, shiny;
 	int form; // v0.55: the walker summary's form (variant low 5 bits when its "has form" flag is set), else 0
 } storage_catch;
+// v0.70 (review finding 4): a copy of a bank entry (the Pokemon + its origin record), kept in the pending-walk file
+// so catches can still be made after the walked Pokemon went back to its game. Returns 1, 0 for an empty slot.
+#define STORAGE_ENTRY_SIZE 0x200
+int storage_walk_entry(int box, int slot, unsigned char out[STORAGE_ENTRY_SIZE]);
+
+// v0.70: one step at a time. begin(ctx, i) runs just before catch / item i is made or sent (the caller marks it
+// "started" in its file): 0 = stop, nothing more is done. end(ctx, i, later) runs after it: later = 1 when nothing was
+// made or sent and it can be tried again (its game or a free PocketPKMN slot was missing), 0 when it is finished
+// (delivered, waiting in PocketPKMN, or impossible - the message says which). skip[i] != 0 = already done, left out.
+typedef struct storage_step_hooks {
+	void *ctx;
+	int (*begin)(void *ctx, int index);
+	void (*end)(void *ctx, int index, int later);
+	const unsigned char *skip;
+} storage_step_hooks;
+
 // Makes each catch a legal Pokemon of the walked Pokemon's game (PKHeX templates, walk_catch.cpp) for that save's
 // trainer and moves it into that game (first free box); one that cannot go in waits in the PocketPKMN box.
-// from_box/slot = the walked Pokemon (still in the bank: its origin record and format are used). msg = one line per
-// catch. Returns how many went into the game, or -1 (msg says why). Not for IR time.
-int storage_deliver_catches(int from_box, int from_slot, const storage_catch *catches, int n, char *msg,
-                            int msg_size);
+// entry = the walked Pokemon's bank entry (storage_walk_entry: its origin record and format are used). msg = one
+// line per catch. Returns how many went into the game; -1 = none could be tried now (its game is not here: all are
+// kept for later; msg says why); -2 = none can ever be made (no record / no catches for that game). Not for IR time.
+int storage_deliver_catches(const unsigned char *entry, const storage_catch *catches, int n,
+                            const storage_step_hooks *hooks, char *msg, int msg_size);
 
 // v0.53: an item the walk found; gen2id = the id is a Gen 2 item number (a GSC course item), else national
 typedef struct storage_found_item {
@@ -101,9 +118,11 @@ typedef struct storage_found_item {
 	int gen2id;
 } storage_found_item;
 // Puts the items into the walked Pokemon's game: Gen 2 = the PC item storage, X/Y = the bag (no item PC there).
-// where = "the PC" / "the bag" if any went in. msg = a line per item that did not. Returns how many went in, or -1.
-int storage_deliver_items(int from_box, int from_slot, const storage_found_item *items, int n, char *where,
-                          int where_size, char *msg, int msg_size);
+// where = "the PC" / "the bag" if any went in. msg = a line per item that did not. Returns how many went in; -1 = none
+// could be tried now (game not here / not ready: kept for later); -2 = never (no record, a GBA game). v0.70: entry and
+// hooks as for storage_deliver_catches (an item that is refused or fails to write is finished, never sent twice).
+int storage_deliver_items(const unsigned char *entry, const storage_found_item *items, int n,
+                          const storage_step_hooks *hooks, char *where, int where_size, char *msg, int msg_size);
 // v0.50: item name ("" if unknown); gen2 = 1 for Gen 2 item ids (GSC courses), else national ids. Not for IR time.
 void storage_item_name(int gen2, int id, char *out, int out_size);
 // v0.50 (audit B2): the first bank slot marked walking: 1 with box/slot/fingerprint, 0 if none.
@@ -119,7 +138,7 @@ typedef struct storage_game_info {
 	char trainer[24]; // the save's trainer
 	unsigned tid;     // ID as the game shows it
 	int gen;          // 1..7
-	int kind;         // 0 Virtual Console (SD), 1 game card, 2 GBA (inject)
+	int kind;         // 0 Virtual Console (SD), 1 game card, 2 GBA (inject), 3 DS save file on the SD (TWiLight Menu)
 	int has_routes;   // 0 -> "Not yet compatible"
 	int boxes, per_box;
 	int badges, hof;  // v0.52: badge count, Hall of Fame entered (course unlocks)

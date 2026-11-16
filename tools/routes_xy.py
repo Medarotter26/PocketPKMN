@@ -48,8 +48,7 @@ POKE_SWAPS = {
 ITEM_CHOICES = {
     "Power Bracer (or another Power item)": [("Power Bracer", "all")],
     "Choice Band or Choice Specs": [("Choice Band", "all")],
-    "Charizardite X or Y": [("Charizardite X", "x"), ("Charizardite Y", "y")],
-}
+}  # ("Charizardite X or Y" removed 2026-11-15: no Mega Stones on the walker; the sheet has Leftovers there now)
 # old / workbook spelling -> name in the project's lists (after these, the
 # match ignores case, accents, spaces, hyphens and apostrophes)
 ALIASES = {

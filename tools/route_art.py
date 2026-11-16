@@ -3307,6 +3307,267 @@ SM1.update({"vanished_woods": vanished_woods5, "rural_station": rural_station5})
 COURSES.update(SM1)
 
 
+# --- Diamond / Pearl / Platinum, set 1 (2026-11-15, user: "Yes, start" on DPPt): pictures for the 10 courses that
+# share no name with another game. Places only, no creatures (user: "They too clearly show real animals").
+FONT3.update({"R": ["##.", "#.#", "##.", "#.#", "#.#"], "I": ["###", ".#.", ".#.", ".#.", "###"],
+              "T": ["###", ".#.", ".#.", ".#.", ".#."]})
+
+
+def lakefront():
+    """Lakefront: a wide calm lake below far mountains, a curved sandy shore in front with a rowboat pulled up,
+    a few pines on the right, a cloud."""
+    c = C(0)
+    c.poly([(0, 9), (6, 4), (11, 7), (17, 2), (23, 6), (28, 3), (32, 7), (32, 9)], 1)   # far mountains
+    c.rect(0, 9, W - 1, 9, 2)
+    c.rect(0, 10, W - 1, 18, 1)                                    # the lake
+    for y, x0, x1 in ((11, 3, 9), (13, 14, 22), (15, 4, 8), (16, 20, 27)):
+        c.rect(x0, y, x1, y, 0)
+    c.poly([(0, 17), (12, 19), (22, 22), (26, 24), (0, 24)], 0)     # sandy shore
+    c.line(0, 17, 12, 19, 2)
+    c.line(12, 19, 22, 22, 2)
+    c.line(22, 22, 26, 24, 2)
+    c.poly([(5, 20), (13, 20), (11, 22), (7, 22)], 3)               # rowboat
+    c.rect(7, 20, 11, 20, 2)
+    c.line(9, 19, 14, 17, 3)                                       # an oar
+    for x, h in ((27, 9), (30, 11), (24, 7)):
+        pine2(c, x, 20, h)
+    cloud(c, 4, 2, 6)
+    return c
+
+
+def deep_woods():
+    """Deep Woods: rows of tall pines getting smaller into the distance, a narrow path leading in between them,
+    mushrooms by the path."""
+    c = C(0)
+    for x in range(0, 32, 3):                                      # far row
+        pine2(c, x, 14, 6, far=True)
+    c.rect(0, 14, W - 1, H - 1, 1)
+    c.poly([(13, 24), (19, 24), (17, 14), (15, 14)], 0)            # path
+    for x, h in ((2, 15), (7, 13), (24, 13), (29, 16)):            # near tall pines
+        pine2(c, x, 22, h)
+    for x, h in ((11, 9), (21, 9)):
+        pine2(c, x, 17, h)
+    for x, y in ((12, 21), (20, 22)):                              # mushrooms
+        c.rect(x - 1, y - 1, x + 1, y - 1, 3)
+        c.set(x, y - 2, 3)
+        c.set(x, y, 2)
+        c.set(x - 1, y - 1, 0)
+    return c
+
+
+def blossom_garden():
+    """Blossom Garden: rows of big flowers filling the ground, a white garden arch with climbing flowers in the
+    middle, a picket fence along the back, a sun."""
+    c = C(0)
+    c.disc(27, 4, 2.4, 1)
+    c.rect(0, 12, W - 1, H - 1, 1)                                 # the garden bed
+    c.rect(0, 12, W - 1, 12, 2)
+    for x in range(1, 32, 3):                                      # picket fence along the back
+        c.rect(x, 9, x, 12, 3)
+        c.set(x, 8, 2)
+    c.rect(0, 10, W - 1, 10, 3)
+    for x in (10, 21):                                             # garden arch
+        c.rect(x, 4, x, 16, 3)
+    for k in range(12):
+        c.set(10 + k, 4 - round(2 * math.sin(math.pi * k / 11)), 3)
+    for x, y in ((10, 6), (21, 8), (11, 3), (20, 3), (10, 11), (21, 13)):
+        flower(c, x, y, 0)                                         # climbing flowers
+    for y, xs in ((15, (2, 6, 25, 29)), (18, (4, 9, 14, 18, 23, 28)), (21, (1, 7, 12, 17, 22, 27, 31))):
+        for x in xs:
+            c.set(x, y + 1, 2)                                     # stem
+            flower(c, x, y, 0)
+    return c
+
+
+def night_meadow():
+    """Night Meadow: a dark night sky full of stars with a crescent moon, a black meadow of tall grass blades, one
+    lone tree in silhouette."""
+    c = C(0)
+    c.dither(0, 0, W - 1, 15, 1, 2, 0.6)                           # night sky (light enough for the black tree)
+    c.disc(24, 4, 3, 0)                                            # crescent moon
+    c.disc(25.5, 3, 2.6, 2)
+    for x, y in ((3, 2), (8, 5), (13, 1), (17, 7), (6, 10), (29, 9), (20, 11), (11, 13), (27, 13)):
+        c.set(x, y, 0)
+    c.set(13, 0, 1)
+    c.rect(0, 16, W - 1, H - 1, 3)                                 # meadow
+    for x in range(0, W, 2):                                       # grass blades against the sky
+        h = 2 + (x * 7) % 4
+        c.rect(x, 16 - h, x, 15, 3)
+    tree_round(c, 7, 9, 4, crown=3, trunk=3)                       # lone tree
+    for x, y in ((14, 19), (22, 21), (4, 22)):
+        c.set(x, y, 2)
+    return c
+
+
+def crumbling_crag():
+    """Crumbling Crag: a tall cracked rock face on the right, a narrow ledge path climbing along it, big fallen
+    boulders and rubble at its foot."""
+    c = C(0)
+    far_hills(c, 10, 1.2, 3.0, 1.0)
+    c.poly([(12, 24), (14, 10), (17, 4), (22, 1), (32, 0), (32, 24)], 2)    # the crag
+    c.line(12, 24, 14, 10, 3)
+    c.line(14, 10, 17, 4, 3)
+    c.line(17, 4, 22, 1, 3)
+    for pts in (((20, 4), (22, 9), (21, 13), (24, 18)), ((27, 2), (26, 7), (29, 12)), ((17, 12), (19, 16))):
+        for a, b in zip(pts, pts[1:]):                             # cracks
+            c.line(a[0], a[1], b[0], b[1], 3)
+    c.line(13, 17, 31, 10, 0)                                      # the ledge path
+    c.line(13, 18, 31, 11, 3)
+    c.rect(0, 19, 13, H - 1, 1)
+    c.rect(0, 19, 13, 19, 2)
+    boulder(c, 5, 23, 3)                                           # fallen boulders
+    boulder(c, 10, 23, 2)
+    for x, y in ((2, 20), (8, 19), (13, 21), (1, 22)):
+        c.rect(x, y, x + 1, y, 3)                                  # rubble
+    return c
+
+
+def rugged_hills():
+    """Rugged Hills: layered jagged hills - far light, near dark - a dirt track winding over them, scrubby bushes and
+    rocks, a sun."""
+    c = C(0)
+    c.disc(6, 4, 2.5, 1)
+    c.poly([(0, 12), (4, 8), (8, 11), (13, 6), (18, 10), (23, 5), (28, 9), (32, 7), (32, 24), (0, 24)], 1)
+    c.poly([(0, 17), (6, 12), (11, 15), (16, 11), (22, 16), (27, 12), (32, 15), (32, 24), (0, 24)], 2)
+    for a, b in (((0, 17), (6, 12)), ((6, 12), (11, 15)), ((11, 15), (16, 11)), ((16, 11), (22, 16)),
+                 ((22, 16), (27, 12)), ((27, 12), (32, 15))):
+        c.line(a[0], a[1], b[0], b[1], 3)
+    for k in range(0, 24):                                         # the winding track
+        t = k / 23.0
+        x = 16 + 7 * math.sin(t * 5.0) * (1 - t * 0.5)
+        y = 24 - t * 12
+        c.set(x, y, 0)
+        c.set(x + 1, y, 0 if t < 0.6 else 1)
+    for x, y in ((4, 20), (26, 21), (9, 17), (29, 18)):            # scrub bushes
+        c.disc(x, y, 1.6, 3)
+        c.set(x - 1, y - 1, 2)
+    boulder(c, 21, 23, 2)
+    return c
+
+
+def marsh_wetlands():
+    """Marsh Wetlands: murky pools between grassy hummocks, cattails, two dead tree stumps, a plank walkway across
+    the marsh, mist on the far side."""
+    c = C(0)
+    c.dither(0, 6, W - 1, 9, 0, 1, 0.3)                            # mist
+    c.rect(0, 10, W - 1, H - 1, 2)                                 # marsh ground
+    for x0, y0, x1, y1 in ((2, 12, 12, 15), (17, 11, 30, 14), (5, 18, 16, 21), (21, 17, 31, 20)):
+        c.dither(x0, y0, x1, y1, 1, 2, 0.4)                        # murky pools
+        c.rect(x0 + 1, y0 + 1, x0 + 4, y0 + 1, 0)                  # a glint
+    c.rect(0, 10, W - 1, 10, 3)
+    for x in range(7, 27, 2):                                      # plank walkway, rising away
+        y = 23 - (x - 7) // 2
+        c.rect(x, y, x + 1, y, 0)
+        c.set(x, y + 1, 3)
+    for x, top in ((3, 6), (14, 8), (28, 5), (24, 9)):             # cattails
+        c.rect(x, top, x, 12, 3)
+        c.rect(x, top, x, top + 2, 2)
+    for x, h in ((9, 6), (20, 8)):                                 # dead stumps
+        c.rect(x, 16 - h, x + 1, 16, 3)
+        c.set(x - 1, 16 - h + 1, 3)
+        c.set(x + 2, 16 - h + 2, 3)
+    return c
+
+
+def iron_mine():
+    """Iron Mine: a hillside with a timber-framed mine entrance (dark inside), rails running out of it to the front,
+    a loaded mine cart on them, a hanging lantern."""
+    c = C(0)
+    c.poly([(0, 18), (0, 6), (8, 2), (20, 1), (32, 5), (32, 18)], 2)        # hillside
+    for x, y in ((4, 9), (26, 8), (14, 4), (29, 13), (2, 14)):
+        c.rect(x, y, x + 1, y, 3)                                  # rocks in the slope
+    c.rect(10, 7, 21, 18, 3)                                       # the dark entrance
+    c.rect(9, 6, 22, 7, 1)                                         # timber frame: lintel and posts
+    c.rect(9, 6, 22, 6, 3)
+    for x in (9, 22):
+        c.rect(x, 6, x, 18, 1)
+        c.rect(x + (1 if x == 9 else -1), 7, x + (1 if x == 9 else -1), 18, 3)
+    c.rect(18, 8, 18, 9, 2)                                        # lantern
+    c.rect(17, 10, 19, 11, 0)
+    c.set(18, 10, 1)
+    c.rect(0, 18, W - 1, H - 1, 1)
+    c.rect(0, 18, W - 1, 18, 2)
+    c.line(13, 18, 6, 24, 3)                                       # rails out of the mine
+    c.line(18, 18, 25, 24, 3)
+    for y in (19, 21, 23):
+        t = (y - 18) / 6.0
+        c.rect(int(13 - 7 * t), y, int(18 + 7 * t), y, 2)
+    c.rect(11, 14, 20, 18, 2)                                      # mine cart with ore
+    c.rect(11, 14, 20, 14, 0)
+    c.rect(11, 14, 11, 18, 0)
+    c.rect(20, 14, 20, 18, 0)
+    for x in (13, 15, 17):
+        c.set(x, 13, 0)
+        c.set(x + 1, 12, 1)
+    c.rect(12, 19, 13, 19, 3)                                      # wheels
+    c.rect(18, 19, 19, 19, 3)
+    return c
+
+
+def lighthouse_coast():
+    """Lighthouse Coast: a tall striped lighthouse on dark rocks at the left, its lamp sending beams across the sky,
+    the sea to the horizon, waves at the rocks."""
+    c = C(0)
+    c.rect(0, 13, W - 1, 13, 2)                                    # horizon
+    c.rect(0, 14, W - 1, H - 1, 1)
+    for y, xs in ((16, (18, 26)), (19, (22,)), (22, (16, 28))):
+        for x in xs:
+            c.rect(x, y, x + 2, y, 0)
+    c.poly([(0, 24), (0, 17), (4, 15), (11, 16), (14, 20), (13, 24)], 3)    # rocks
+    c.rect(3, 16, 6, 16, 2)
+    for y in range(4, 16):                                         # the tower, a little wider at the base
+        half = 2 + (y - 4) // 6
+        c.rect(7 - half, y, 7 + half, y, 0)
+        c.set(7 - half, y, 3)
+        c.set(7 + half, y, 3)
+        if (y // 2) % 2 == 0:
+            c.rect(8 - half, y, 6 + half, y, 2)                    # stripes
+    c.rect(5, 2, 9, 3, 3)                                          # lamp room
+    c.rect(6, 2, 8, 2, 0)
+    c.rect(6, 0, 8, 1, 3)                                          # roof
+    c.set(7, 0, 3)
+    for dy in (-2, 0, 2):                                          # light beams
+        c.line(10, 2, 31, 2 + dy * 3, 1)
+    for x, y in ((14, 18), (12, 21)):                              # spray at the rocks
+        c.set(x, y, 0)
+    return c
+
+
+def wild_safari():
+    """Wild Safari: open tall grass to the horizon, a flat-topped tree, a rope fence on posts in front, a wooden sign
+    reading SAFARI."""
+    c = C(0)
+    c.disc(27, 3, 2.3, 1)
+    c.rect(0, 11, W - 1, 11, 2)
+    c.rect(0, 12, W - 1, H - 1, 1)
+    for x in range(0, W, 2):                                       # tall grass tops
+        h = 1 + (x * 5) % 3
+        c.rect(x, 11 - h, x, 11, 2)
+    c.rect(21, 4, 31, 5, 3)                                        # flat-topped tree
+    c.rect(23, 3, 29, 3, 3)
+    c.rect(26, 6, 26, 11, 3)
+    c.line(26, 7, 23, 5, 3)
+    c.rect(1, 3, 23, 9, 3)                                         # sign
+    text3(c, 2, 4, "SAFARI", 0)
+    c.rect(4, 10, 4, 14, 3)
+    c.rect(20, 10, 20, 14, 3)
+    for x in range(1, 32, 6):                                      # rope fence in front
+        c.rect(x, 17, x, 21, 3)
+    for x in range(0, W):
+        c.set(x, 18 + (1 if (x % 6) in (2, 3, 4) else 0), 3)
+    for x, y in ((3, 23), (12, 22), (25, 23), (18, 15), (9, 14)):
+        c.set(x, y, 2)
+        c.set(x + 1, y - 1, 2)
+    return c
+
+
+DPPT1 = {"lakefront": lakefront, "deep_woods": deep_woods, "blossom_garden": blossom_garden,
+         "night_meadow": night_meadow, "crumbling_crag": crumbling_crag, "rugged_hills": rugged_hills,
+         "marsh_wetlands": marsh_wetlands, "iron_mine": iron_mine, "lighthouse_coast": lighthouse_coast,
+         "wild_safari": wild_safari}
+COURSES.update(DPPT1)
+
+
 def preview_names(png, names):
     """Like preview(), but only for the given names (so a new set gets its own sheet)."""
     global KINDS

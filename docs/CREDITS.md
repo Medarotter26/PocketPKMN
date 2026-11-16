@@ -17,7 +17,8 @@ who receives the app.
 
 - **PKHeX.Core** by Kurt (kwsch) and contributors (GPL-3.0) - its legality analysis and encounter data choose the
   legal origins of walk catches and check every catch PocketPKMN can make (PC tools only: `tools/pkhex_check_*.cs`;
-  not part of the app). Pokémon data in the course tables also comes from PokeAPI (pokeapi.co).
+  not part of the app). The species names in other languages (`romfs/i18n/*/species*.txt`, v0.64) were written
+  out from PKHeX.Core. Pokémon data in the course tables also comes from PokeAPI (pokeapi.co).
 - **PKSM-Core** by FlagBrew and contributors (GPL-3.0) - reading and writing Pokémon game saves, species tables
   and text. Kept in `lib/PKSM-Core` (upstream commit in `lib/PKSM-Core/UPSTREAM_COMMIT.txt`); it also carries
   memecrypto and pcg-cpp under their own licences.

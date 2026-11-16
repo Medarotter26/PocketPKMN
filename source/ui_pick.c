@@ -28,7 +28,8 @@ static char box_name[32];
 static ui_image big[2], small_cur;
 static int big_species = -1, big_form = -1, big_gen = -1, big_animate;
 
-static const char *const k_kind[3] = { "Virtual Console", "Game card", "Game Boy Advance" };
+// v0.61: 3 = a DS save file on the SD card (TWiLight Menu++; user: "show up different from cartridges")
+static const char *const k_kind[4] = { "Virtual Console", "Game card", "Game Boy Advance", "SD card (TWiLight Menu)" };
 static const char *const k_ev[6] = { "HP", "Atk", "Def", "SpA", "SpD", "Spe" };
 
 static void free_box(void)
@@ -146,7 +147,7 @@ static void draw_game_select(int sel, int not_compatible)
 	bullet(30, 142, t);
 	snprintf(t, sizeof(t), "ID No. %05u", g->tid);
 	bullet(218, 142, t);
-	bullet(30, 166, k_kind[g->kind < 0 || g->kind > 2 ? 0 : g->kind]);
+	bullet(30, 166, k_kind[g->kind < 0 || g->kind > 3 ? 0 : g->kind]);
 	snprintf(t, sizeof(t), "Generation %d", g->gen);
 	bullet(218, 166, t);
 	ui_box(UI_PANEL, 20, 195, 376, 40);

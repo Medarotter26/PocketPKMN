@@ -21,12 +21,12 @@ static int touched(touchPosition t, float x, float y, float w, float h)
 	return t.px >= x && t.px < x + w && t.py >= y && t.py < y + h;
 }
 
-// v0.57 (user: "the text is a tiny bit too small. The headers also should be what is bold ... Is that not how our
-// other screens do it?"): as the route info screen - the heading bold, its value plain, both a little larger
+// v0.57 (user: "the text is a tiny bit too small"): both a little larger. v0.59 (user: "change the pokemon info screen
+// again so that the headers are light and the description under is bold"): the heading light, its value bold.
 static void fact(float x, float y, const char *k, const char *v)
 {
-	ui_text(x, y, k, 9.5f, UI_TEXT, 1, 'l', 0);
-	ui_text(x, y + 11, v, 10.5f, UI_TEXT, 0, 'l', 0);
+	ui_text(x, y, k, 9.5f, UI_SUB, 0, 'l', 0);
+	ui_text(x, y + 11, v, 10.5f, UI_TEXT, 1, 'l', 0);
 }
 
 // A game name that fits under its icon (92 px): "Pokémon " dropped first (as the mockup's "Alpha Sapphire"), then

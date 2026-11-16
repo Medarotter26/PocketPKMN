@@ -15,3 +15,7 @@
 699 0 6
 # Pyukumuku: review 6 "lower it all the way to the bottom" -> no shift (it stands on
 # the bottom edge by default).
+# (Gen 3 set crops moved to tools/walker_gen3_heads.txt, 2026-11-16: the Gen 3 set has its own settings)
+# Alomomola (2026-11-15, colour fix only): keep the reviewed window, 16 rows above today's default
+594 0 18     # user: "can we move Alolamola higher on both frames", "a bit higher" (8 -> 12), "12 rows higher" (-> 24), "6 rows down" (-> 18) (the earlier -16 was clamped = no effect)
+563 -16 0    # Cofagrigus (2026-11-15: "needs to be centered better"): coffin in the middle, was at the left edge

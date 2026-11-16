@@ -1,0 +1,1 @@
+Copied 2026-11-15 from https://github.com/FlagBrew/PKSM (master 9cad15694c1e90cc058ddd285eb68d56c7ad9ac8): 3ds/include/io/spi.hpp, 3ds/source/io/spi.cpp (GPL-3.0; TWLSaveTool by TuxSH, GPL-2.0+). Local changes: see the PocketPKMN notes in spi.cpp.

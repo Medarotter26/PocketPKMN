@@ -27,6 +27,7 @@
 #include "pkx/PK6.hpp"
 #include "utils/crypto.hpp"
 #include "sav/Item.hpp"
+#include "sav/Sav4.hpp"
 
 #include <map>
 
@@ -80,9 +81,13 @@ namespace walkerbox
             return true; // gameMatchFinish6
         if (sav.generation() == pksm::Generation::SEVEN)
             return true; // gameMatchFinish7 (v0.56: checked against the user's Moon, game-made before/after pair)
+        if (sav.generation() == pksm::Generation::FOUR && (sav.version() == pksm::GameVersion::D ||
+                                                           sav.version() == pksm::GameVersion::P ||
+                                                           sav.version() == pksm::GameVersion::Pt))
+            return true; // gameMatchFinish4 (v0.62: checked against the user's Diamond + Platinum pairs)
         if (sav.generation() != pksm::Generation::ONE && sav.generation() != pksm::Generation::TWO)
         {
-            why = "only Gen 1 to 3 and 6/7 saves are handled so far";
+            why = "only Gen 1 to 3, Diamond / Pearl / Platinum and Gen 6/7 saves are handled so far";
             return false;
         }
         if (sav.language() == pksm::Language::JPN || sav.language() == pksm::Language::KOR)
@@ -339,6 +344,148 @@ namespace walkerbox
         return true;
     }
 
+    // --- Gen 4 (v0.62: Diamond / Pearl / Platinum) ---------------------------------------------------------------
+    // From the user's Checkpoint pairs (hw/gen4: Platinum Ludicolo box 4 -> box 3, Diamond Kadabra box 1 -> box 18):
+    // a save has two halves (0 and 0x40000), each a "general" block and a "storage" (boxes) block with a 0x14-byte
+    // footer (save number, block counter, size, magic, block id, CRC-16). The game writes each changed block into the
+    // OTHER half with the next numbers; the older copy stays. v0.62-v0.66 did what PKSM does on game cards (the
+    // CURRENT storage block edited in place and re-checksummed). The edit itself is still checked that way: only the
+    // edited box's 30 slots and the storage block's CRC may differ, anything else refuses the write.
+    //
+    // v0.67 (review 2026-11 finding 3; user: "Yes, the game's way"): the block is no longer changed where it lies.
+    // The game saves a block into the copy that is NOT current, body first and footer last, and for a save of one
+    // block keeps the save number and raises the block counter (pret/pokeplatinum src/savedata.c, read 2026-11-15;
+    // footers seen in the user's pairs). PocketPKMN now does the same: the edited block is written into the other
+    // half with block counter + 1 and its CRC; the current copy stays exactly as it was. While that write is under
+    // way the newest valid save is untouched, so a power cut or a pulled card leaves the game the save from before
+    // the move. The game then finds the same save number in the trainer data and the newest boxes and loads both.
+    // The save object still looks at the old copy afterwards: the caller reads the save again (as for Gen 3).
+    namespace
+    {
+        constexpr uint32_t G4_SAVE = 0x80000;
+        constexpr uint32_t G4_SLOT = 136;
+        constexpr uint32_t G4_HALF = 0x40000;
+        constexpr uint32_t G4_FOOT = 0x14;
+
+        uint32_t g4GeneralSize(bool pt) { return pt ? 0xCF2C : 0xC100; }
+        uint32_t g4StorageSize(bool pt) { return pt ? 0x121E4 : 0x121E0; }
+
+        // The game only loads trainer data and boxes together when their newest copies carry the same save number.
+        // A save where they differ is one the game itself will repair on its next load and save: no write then.
+        bool g4PartsBelongTogether(const pksm::Sav& sav, const u8* d)
+        {
+            const bool pt     = sav.version() == pksm::GameVersion::Pt;
+            const auto& s4    = static_cast<const pksm::Sav4&>(sav);
+            const u8* general = d + (uint32_t)s4.getGBO() + g4GeneralSize(pt) - G4_FOOT;
+            const u8* storage = d + (uint32_t)s4.getSBO() + g4GeneralSize(pt) + g4StorageSize(pt) - G4_FOOT;
+            return memcmp(general, storage, 4) == 0;
+        }
+
+        // `edited` = the whole save with the block at curHalf + start changed in place and its CRC redone by
+        // PKSM-Core; `out` = the save as it was. Puts that block into the other half of `out` with block counter
+        // + 1 and its own CRC. False if the CRC rule here is not the one PKSM-Core (and the game) used.
+        bool g4IntoOtherCopy(std::vector<u8>& out, const u8* edited, uint32_t curHalf, uint32_t start, uint32_t size)
+        {
+            const u8* src = edited + curHalf + start;
+            u8* dst       = out.data() + (curHalf ^ G4_HALF) + start;
+            if (pksm::crypto::ccitt16({src, size - G4_FOOT}) != (uint16_t)(src[size - 2] | (src[size - 1] << 8)))
+                return false;
+            memcpy(dst, src, size);
+            u8* foot         = dst + size - G4_FOOT;
+            uint32_t counter = (uint32_t)foot[4] | ((uint32_t)foot[5] << 8) | ((uint32_t)foot[6] << 16) | ((uint32_t)foot[7] << 24);
+            counter++;
+            for (int i = 0; i < 4; i++)
+                foot[4 + i] = (u8)(counter >> (8 * i));
+            uint16_t crc = pksm::crypto::ccitt16({dst, size - G4_FOOT});
+            foot[0x12]   = (u8)crc;
+            foot[0x13]   = (u8)(crc >> 8);
+            return true;
+        }
+    }
+
+    bool gameMatchFinish4(pksm::Sav& sav, const uint8_t* before, uint32_t length, int editedBox, std::string& note)
+    {
+        if (sav.generation() != pksm::Generation::FOUR || length != G4_SAVE || !before || editedBox < 0 ||
+            editedBox >= sav.maxBoxes() ||
+            (sav.version() != pksm::GameVersion::D && sav.version() != pksm::GameVersion::P &&
+             sav.version() != pksm::GameVersion::Pt))
+        {
+            note = "not a Diamond / Pearl / Platinum save";
+            return false;
+        }
+        {
+            std::shared_ptr<u8[]> b(new u8[length]);
+            memcpy(b.get(), before, length);
+            auto orig = pksm::Sav::getSave(b, length);
+            if (!orig || !orig->checksumsValid())
+            {
+                note = "the save's checksums were not valid before the edit";
+                return false;
+            }
+        }
+        // getSBO() = the half (0 / 0x40000) holding the current storage block; inside a half the storage block
+        // starts at 0xC100 (D/P) / 0xCF2C (Pt), its boxes 4 bytes in, its CRC-16 at 0x1E2DE / 0x1F10E.
+        const auto& s4      = static_cast<const pksm::Sav4&>(sav);
+        const bool pt       = sav.version() == pksm::GameVersion::Pt;
+        const uint32_t half = (uint32_t)s4.getSBO();
+        const uint32_t from = half + (pt ? 0xCF2C : 0xC100) + 4 + (uint32_t)editedBox * 30 * G4_SLOT;
+        const uint32_t to   = from + 30 * G4_SLOT;
+        const uint32_t crc  = half + (pt ? 0x1F10E : 0x1E2DE);
+        u8* d = sav.rawData().get();
+        for (uint32_t i = 0; i < length; i++) // everything but that box as it was; then PKSM-Core's checksums
+            if ((i < from || i >= to) && d[i] != before[i])
+                d[i] = before[i];
+        sav.finishEditing();
+        d = sav.rawData().get();
+        uint32_t other = 0, sums = 0;
+        for (uint32_t i = 0; i < length; i++)
+            if ((i < from || i >= to) && d[i] != before[i])
+                (i >= crc && i < crc + 2 ? sums : other)++;
+        if (other)
+        {
+            note = "the save changed more than the box and its checksum (" + std::to_string(other) + " bytes)";
+            memcpy(d, before, length);
+            sav.beginEditing();
+            return false;
+        }
+        (void)sums;
+        if (!g4PartsBelongTogether(sav, before))
+        {
+            note = "the save's trainer data and boxes carry different save numbers (save in the game first)";
+            memcpy(d, before, length);
+            sav.beginEditing();
+            return false;
+        }
+        // v0.67: the edited boxes block goes into the other half (block counter + 1); the current copy as it was
+        std::vector<u8> out(before, before + length);
+        const uint32_t start = g4GeneralSize(pt), size = g4StorageSize(pt), newHalf = half ^ G4_HALF;
+        bool ok = g4IntoOtherCopy(out, d, half, start, size);
+        if (ok)
+        {
+            // the save as the game (and PKSM-Core) will read it: the new copy is the current one, valid, and holds
+            // exactly the edited boxes
+            std::shared_ptr<u8[]> b(new u8[length]);
+            memcpy(b.get(), out.data(), length);
+            auto chk = pksm::Sav::getSave(b, length);
+            ok = chk && chk->checksumsValid() &&
+                 (uint32_t)static_cast<const pksm::Sav4&>(*chk).getSBO() == newHalf &&
+                 (uint32_t)static_cast<const pksm::Sav4&>(*chk).getGBO() == (uint32_t)s4.getGBO() &&
+                 memcmp(out.data() + newHalf + start + 4, d + half + start + 4, 18 * 30 * G4_SLOT) == 0;
+        }
+        if (!ok)
+        {
+            note = "the new copy of the boxes block did not check out";
+            memcpy(d, before, length);
+            sav.beginEditing();
+            return false;
+        }
+        memcpy(d, out.data(), length);
+        sav.beginEditing();
+        note = "Gen 4, box " + std::to_string(editedBox + 1) + ": saved as the game does - new boxes copy in half " +
+               (newHalf ? "2" : "1") + ", block counter + 1; the copy before it untouched";
+        return true;
+    }
+
     // --- items (v0.53) -------------------------------------------------------------
     bool addItemToSave(pksm::Sav& sav, uint16_t id, bool gen2Id, std::string& where)
     {
@@ -388,7 +535,9 @@ namespace walkerbox
             where = "PC";
             return true;
         }
-        if (sav.generation() == pksm::Generation::SIX || sav.generation() == pksm::Generation::SEVEN) // v0.56: Gen 7 too
+        // v0.56: Gen 7 too; v0.62: Diamond / Pearl / Platinum (no item PC in Gen 4 either -> the bag)
+        if (sav.generation() == pksm::Generation::SIX || sav.generation() == pksm::Generation::SEVEN ||
+            sav.generation() == pksm::Generation::FOUR)
         {
             for (auto& [pouch, valid] : sav.validItems())
             {
@@ -437,12 +586,20 @@ namespace walkerbox
         const bool g6 = sav.generation() == pksm::Generation::SIX && (length == G6_XY || length == G6_ORAS);
         // v0.56: Gen 7 like Gen 6 (the bag, the block table), plus the 0x80-byte signature 0x100 before the table
         const bool g7 = sav.generation() == pksm::Generation::SEVEN && (length == G7_SM || length == G7_USUM);
-        if (!g2 && !g6 && !g7)
+        // v0.62: Diamond / Pearl / Platinum - the bag is in the CURRENT general block, edited in place (as PKSM
+        // does), plus that block's CRC-16 (0xC0FE D/P, 0xCF2A Pt, in the half getGBO() names)
+        const bool g4 = sav.generation() == pksm::Generation::FOUR && length == G4_SAVE &&
+                        (sav.version() == pksm::GameVersion::D || sav.version() == pksm::GameVersion::P ||
+                         sav.version() == pksm::GameVersion::Pt);
+        const uint32_t g4crc = g4 ? (uint32_t)static_cast<const pksm::Sav4&>(sav).getGBO() +
+                                        (sav.version() == pksm::GameVersion::Pt ? 0xCF2A : 0xC0FE)
+                                  : 0;
+        if (!g2 && !g4 && !g6 && !g7)
         {
-            note = "items: only Gen 2, 6 and 7 saves";
+            note = "items: only Gen 2, 4 (D/P/Pt), 6 and 7 saves";
             return false;
         }
-        if (g6 || g7)
+        if (g4 || g6 || g7)
         {
             std::shared_ptr<u8[]> b(new u8[length]);
             memcpy(b.get(), before, length);
@@ -490,8 +647,9 @@ namespace walkerbox
                                   // game changes neither when it stores an item
             else if (g7 && i >= length - 0x300 && i < length - 0x280)
                 continue; // Gen 7 signature over the block table (re-made by PKSM-Core like the game's)
-            else if ((g2 && i >= 0x2000 && i < 0x4000) || ((g6 || g7) && i >= length - 0x200))
-                sums++; // Gen 2 main checksum / X/Y / Gen 7 block table checksum
+            else if ((g2 && i >= 0x2000 && i < 0x4000) || ((g6 || g7) && i >= length - 0x200) ||
+                     (g4 && i >= g4crc && i < g4crc + 2))
+                sums++; // Gen 2 main checksum / X/Y / Gen 7 block table checksum / Gen 4 general block CRC
             else
                 other++;
             if (where.size() < 80)
@@ -510,6 +668,38 @@ namespace walkerbox
             sav.beginEditing();
             return false;
         }
+        // v0.67: Gen 4 - the trainer-data block with the new bag goes into the other half (block counter + 1), the
+        // way the game saves it every time; the current copy stays as it was (see the Gen 4 notes above)
+        if (g4)
+        {
+            const bool pt        = sav.version() == pksm::GameVersion::Pt;
+            const uint32_t half  = (uint32_t)static_cast<const pksm::Sav4&>(sav).getGBO();
+            const uint32_t sHalf = (uint32_t)static_cast<const pksm::Sav4&>(sav).getSBO();
+            std::vector<u8> out(before, before + length);
+            bool ok = g4PartsBelongTogether(sav, before) && g4IntoOtherCopy(out, d, half, 0, g4GeneralSize(pt));
+            if (ok)
+            {
+                std::shared_ptr<u8[]> b(new u8[length]);
+                memcpy(b.get(), out.data(), length);
+                auto chk = pksm::Sav::getSave(b, length);
+                ok = chk && chk->checksumsValid() &&
+                     (uint32_t)static_cast<const pksm::Sav4&>(*chk).getGBO() == (half ^ G4_HALF) &&
+                     (uint32_t)static_cast<const pksm::Sav4&>(*chk).getSBO() == sHalf;
+            }
+            if (!ok)
+            {
+                note = "items: the new copy of the trainer-data block did not check out";
+                memcpy(d, before, length);
+                sav.beginEditing();
+                return false;
+            }
+            memcpy(d, out.data(), length);
+            sav.beginEditing();
+            note = "Gen 4 items: saved as the game does - the item list (" + std::to_string(hi - lo) +
+                   " bytes) in a new trainer-data copy in half " + ((half ^ G4_HALF) ? "2" : "1") +
+                   ", block counter + 1; the copy before it untouched";
+            return true;
+        }
         // Crystal keeps a backup copy of its game data (file 0x1209, the same 0xB7A bytes as 0x2009, checksum at
         // 0x1F0D; identical in the user's own Crystal saves) and the game writes both copies whenever it saves - so
         // the backup gets the new item list too (PKHeX checks it). Gold / Silver's backup is not one copy and is left
@@ -523,7 +713,7 @@ namespace walkerbox
             backup = true;
         }
         sav.beginEditing();
-        note = std::string(g2 ? "Gen 2" : g7 ? "Gen 7" : "Gen 6") + (backup ? " (+ Crystal's backup copy)" : "") +
+        note = std::string(g2 ? "Gen 2" : g4 ? "Gen 4" : g7 ? "Gen 7" : "Gen 6") + (backup ? " (+ Crystal's backup copy)" : "") +
                " items: only the item list (" + std::to_string(hi - lo) +
                " bytes) and its checksum";
         return true;

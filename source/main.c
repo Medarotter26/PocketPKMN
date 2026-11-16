@@ -23,6 +23,7 @@
 #include "pw_image.h"
 #include "pw_menu_art.h"
 #include "pw_proto.h"
+#include "restore_plan.h"
 #include "storage.h"
 #include "ui.h"
 #include "ui_home.h"
@@ -32,11 +33,12 @@
 #include "ui_credits.h"
 #include "routes.h"
 #include "walk_compose.h"
+#include "walk_pending.h"
 #include "wbx_sprites.h"
 #include "wbx_trainer.h"
 #include "sound.h"
 
-#define APP_VERSION "0.58"
+#define APP_VERSION "0.72"
 #define LOG_PATH    APP_DIR "/link_log.txt"
 #define LEDGER_PATH APP_DIR "/ledger.txt"
 
@@ -82,6 +84,7 @@ bool hidShouldUseIrrst(void)
 static int cstick_on;
 
 static int checked_block_ok(const u8 *ee);
+static int pending_blocks(const char *action); // v0.70 (review finding 4)
 static int walk_valid(const u8 *ee);
 static void put_u32le(u8 *p, u32 v);
 static void put_u32be(u8 *p, u32 v);
@@ -342,6 +345,7 @@ static int session_open(session *s, const char *title, const char *log_what)
 		dbg_printf("irrstInit -> %08lx", (unsigned long)rr);
 	}
 	pw_transport io;
+	sound_link(1); // v0.59: the music fully dimmed now (about 0.25 s), before the IR link and its animation start
 	ui_set_ir_busy(1); // v0.32: from here to session_close no file access and no waiting on the GPU
 	link_open_now = 1; // v0.50 (audit S5): ledger lines wait in RAM until session_close
 	if (ir_raw_open(&io) < 0) {
@@ -364,7 +368,9 @@ static int session_open(session *s, const char *title, const char *log_what)
 
 static void session_close(session *s, int disconnect)
 {
-	if (disconnect)
+	// v0.68 (review addendum A): only through a link that was set up - after "Could not start the IR hardware"
+	// s->link is all zero and pw_disconnect would call through an empty pointer
+	if (disconnect && s->open)
 		pw_disconnect(&s->link);
 	if (s->open) {
 		ir_raw_stats_log();
@@ -524,6 +530,9 @@ static int confirm_takeover(const pw_identity *id, const u8 *route, const char *
 
 // --- full backup -------------------------------------------------------------------
 
+// v0.68: chunks that differed between the two complete passes of the last full_read (0 = the passes agreed)
+static unsigned last_read_mismatches;
+
 // Two complete passes; chunks that differ are re-read until two reads agree.
 static int full_read(session *s, u8 *buf)
 {
@@ -568,6 +577,7 @@ static int full_read(session *s, u8 *buf)
 	}
 	printf("\n");
 	trace_quiet = 0;
+	last_read_mismatches = mismatches;
 	dbg_printf("full read finished with %s after %lu ms: %u retried reads, %u reconnects, %u chunk(s) "
 	           "differed on the check pass", pw_strerror(r), (unsigned long)((dbg_now_us() - t0) / 1000),
 	           s->link.read_retries, s->reconnects, mismatches);
@@ -596,6 +606,16 @@ static int save_backup(const u8 *buf, char *path, size_t path_size)
 	int ok = fwrite(buf, 1, PW_EEPROM_SIZE, f) == PW_EEPROM_SIZE;
 	if (fclose(f) != 0)
 		ok = 0;
+	// v0.68 (review addendum B / J): read the file back, so a damaged backup is found when it is made
+	if (ok) {
+		static u8 back[PW_EEPROM_SIZE];
+		f = fopen(path, "rb");
+		ok = f && fread(back, 1, PW_EEPROM_SIZE, f) == PW_EEPROM_SIZE && !memcmp(back, buf, PW_EEPROM_SIZE);
+		if (f)
+			fclose(f);
+		if (!ok)
+			dbg_printf("backup %s: read-back did NOT match", path);
+	}
 	return ok ? 0 : -1;
 }
 
@@ -839,8 +859,8 @@ static int choose_backup_ex(const char *title, const char *help, int allow_y);
 static int choose_backup(void)
 {
 	return choose_backup_ex("RESTORE A BACKUP",
-	                        "Writes a backup file back to the\nwalker (everything from 0x0280 up;\n"
-	                        "the walker's own ID/steps header\nis left alone).\n",
+	                        "Writes a backup of THIS walker\nback to it: menu pictures, event\n"
+	                        "log, walkers met. Never the walk,\nits catches/items/team, its\nID/steps or its sound block.\n",
 	                        0);
 }
 
@@ -905,10 +925,19 @@ static void do_restore(void)
 		wait_key();
 		return;
 	}
-	if (!ask("Restore this backup to the walker?", 1))
-		return;
 	char chosen[32];
 	snprintf(chosen, sizeof(chosen), "%s", files[sel]);
+	// v0.68 (review addendum B): the walker hangs if a sum of its checksummed (sound) block is wrong - a file
+	// whose block is not valid (damaged, blank walker) is refused before anything is connected
+	if (!rp_checked_block_ok(image)) {
+		printf("\n%s cannot be restored:\nits sound block is damaged or\nempty. Writing it could freeze\n"
+		       "the walker for good.\nNothing was written.\n", chosen);
+		dbg_printf("restore REFUSED: %s has no valid checked block", chosen);
+		wait_key();
+		return;
+	}
+	if (!ask("Restore this backup to the walker?", 1))
+		return;
 	dbg_printf("restore from %s", chosen);
 	// `image` holds the chosen file; part 1 reads the walker into `eeprom`.
 
@@ -918,19 +947,46 @@ static void do_restore(void)
 		wait_key();
 		return;
 	}
-	if (memcmp(image + EE_UNIQUE_ID, id.unique_id, 0x28) != 0) {
-		printf("\nThis backup is from a DIFFERENT\nwalker (or a different pairing).\n");
-		if (!ask("Write it to this walker anyway?", 1))
-			return;
+	static restore_plan plan;
+	rp_make_plan(image, eeprom, &plan);
+	if (plan.result == RP_REFUSE_OTHER_WALKER) {
+		// v0.68: another walker's backup is not restored at all (owner's choice: fewest ways to write a walker)
+		printf("\nThis backup is from ANOTHER\nwalker, or from before this\nwalker was reset. Restore only\n"
+		       "takes this walker's own backups.\nTo give a walker menu pictures,\nuse \"Set up a walker\".\n"
+		       "Nothing was written.\n");
+		dbg_printf("restore REFUSED: %s is another walker's backup", chosen);
+		wait_key();
+		return;
 	}
-	unsigned todo = 0, done = 0;
-	for (unsigned a = EE_RESTORE_FROM; a < PW_EEPROM_SIZE; a += CHUNK)
-		todo += memcmp(image + a, eeprom + a, CHUNK) != 0;
+	if (plan.result != RP_OK) {
+		printf("\nThis backup cannot be restored\n(check %d). Nothing was written.\n", plan.result);
+		dbg_printf("restore REFUSED: plan result %d", plan.result);
+		wait_key();
+		return;
+	}
+	const unsigned todo = plan.count;
+	unsigned done = 0;
 	printf("\n%u block(s) of 128 bytes differ.\n", todo);
 	if (!todo) {
 		printf("The walker already matches the\nbackup. Nothing to do.\n");
 		wait_key();
 		return;
+	}
+	if (plan.repair) {
+		// v0.68: the walker's own checksummed block is broken; the backup's valid one goes back - only when the
+		// two full reads agreed byte for byte, and only after L+R
+		if (last_read_mismatches) {
+			printf("\nThe walker's sound block reads as\ndamaged, but two reads of the\nwalker did not agree. "
+			       "Nothing was\nwritten; try again.\n");
+			dbg_printf("restore: repair refused, %u chunk(s) differed between the reads", last_read_mismatches);
+			wait_key();
+			return;
+		}
+		printf("\nThe walker's SOUND BLOCK is\ndamaged (a walker freezes when it\nchecks it). This restore writes\n"
+		       "the backup's good block back,\nlast of all. Keep the walker\nstill until it says DONE.\n");
+		dbg_printf("restore: repair of the checked block planned");
+		if (!ask("Repair the sound block?", 1))
+			return;
 	}
 	if (!ask("Write them now?", 0))
 		return;
@@ -938,12 +994,11 @@ static void do_restore(void)
 	session s;
 	int r = part2_open(&s, "RESTORE", "restore", &id);
 	if (r == 0) {
-		dbg_printf("restore: %u block(s) differ", todo);
+		dbg_printf("restore: %u block(s) differ%s", todo, plan.repair ? " (with the checked-block repair)" : "");
 		s.link.read_retries = 0;
 		trace_quiet = 1;
-		for (unsigned a = EE_RESTORE_FROM; a < PW_EEPROM_SIZE && r == 0; a += CHUNK) {
-			if (!memcmp(image + a, eeprom + a, CHUNK))
-				continue;
+		for (unsigned k = 0; k < plan.count && r == 0; k++) {
+			unsigned a = plan.order[k];
 			r = write_chunk(&s, a, image + a);
 			if (r < 0)
 				dbg_printf("restore: block 0x%04x failed: %s", a, pw_strerror(r));
@@ -1365,7 +1420,7 @@ static int seen_on(const char *course, int species)
 // box -> Pokemon -> confirm -> storage_pick_commit. Returns 1 when the walker slot holds the Pokemon to send.
 static int pick_for_walk(void)
 {
-	ui_loading("Getting ready遯ｶ・ｦ"); // v0.43: no frozen screen while the slot and saves are read
+	ui_loading("Getting ready..."); // v0.43: no frozen screen while the slot and saves are read
 	int count = storage_walk_list(walk_items, MAX_WALK_ITEMS);
 	if (count < 0) {
 		printf("SEND TO WALKER\n\nCould not load the Pokemon data\n(romfs) or the bank. See the log.\n");
@@ -1411,6 +1466,9 @@ static void do_send_walk(void)
 		wait_key();
 		return;
 	}
+	// v0.70 (review finding 4): an earlier walk's results that still wait for their game come first
+	if (pending_blocks("send a new walk"))
+		return;
 	// One-slot flow (2026-11-15): choose a game and a Pokemon in its boxes; it moves into the walker slot.
 	if (!pick_for_walk()) {
 		flush_log();
@@ -1741,8 +1799,353 @@ static int offer_lost_walk(const char *reason)
 	return 1;
 }
 
+// --- v0.70: a walk's results until they are delivered (review finding 4 + addendum finding C) ---------------------
+//
+// Right after the walk-end link closes - before watts, gains or anything else - the walk's results go into
+// APP_DIR/pending_walk.bin (source/walk_pending.c): steps, watts, the catch records, the item numbers and a copy
+// of the walked Pokemon's bank entry (its game and trainer, for the catches). Every step after that is marked in
+// the file just before it runs ("started") and when it is finished ("done"); a step found "started" after a stop
+// is never run again, so nothing can be delivered twice. Catches and items whose game is not in the 3DS stay
+// "to do" and are delivered at the next start or End walk. The file is removed when everything is done.
+// A lost answer to the end command (finding C) is written with state "maybe": nothing is delivered until the next
+// End walk with that walker shows whether the walk really ended.
+
+#define PENDING_PATH APP_DIR "/pending_walk.bin"
+static wp_record pend;
+
+static int pend_save(void)
+{
+	ensure_dir();
+	int r = -1;
+	for (int k = 0; k < 3 && r != 0; k++)
+		r = wp_save(PENDING_PATH, &pend);
+	if (r != 0)
+		dbg_printf("pending: saving %s FAILED", PENDING_PATH);
+	return r;
+}
+
+static int pend_begin_catch(void *ctx, int i)
+{
+	(void)ctx;
+	pend.st_catch[i] = WP_STARTED;
+	return pend_save() == 0; // no mark on the card = not made at all
+}
+static void pend_end_catch(void *ctx, int i, int later)
+{
+	(void)ctx;
+	pend.st_catch[i] = later ? WP_TODO : WP_DONE;
+	pend_save();
+}
+static int pend_begin_item(void *ctx, int i)
+{
+	(void)ctx;
+	pend.st_item[i] = WP_STARTED;
+	return pend_save() == 0;
+}
+static void pend_end_item(void *ctx, int i, int later)
+{
+	(void)ctx;
+	pend.st_item[i] = later ? WP_TODO : WP_DONE;
+	pend_save();
+}
+
+// Loads the pending walk, if any. Steps cut off half-way become "done" (never repeated) and are reported.
+static int pend_load(void)
+{
+	if (!wp_load(PENDING_PATH, &pend))
+		return 0;
+	// v0.71 (owner): say for each cut-off step what may already have happened and where to look
+	consoleSelect(&top);
+	int cut = 0;
+	for (int i = 0; i < pend.ncatch && i < WP_MAX_CATCHES; i++)
+		if (pend.st_catch[i] == WP_STARTED) {
+			char sp[24];
+			storage_species_name((int)pend.catches[i].species, sp, sizeof(sp));
+			if (!cut++)
+				consoleClear();
+			printf("Caught %s: its delivery was cut\noff. It may already be in\nPocketPKMN's boxes (Game settings\n"
+			       "-> Move Pokemon) or in the game.\n\n", sp[0] ? sp : "Pokemon");
+		}
+	for (int i = 0; i < pend.nitem && i < WP_MAX_ITEMS; i++)
+		if (pend.st_item[i] == WP_STARTED) {
+			char nm[32];
+			storage_item_name((int)pend.item_gen2[i], (int)pend.item_id[i], nm, sizeof(nm));
+			if (!cut++)
+				consoleClear();
+			printf("Item %s: its delivery was cut\noff. It may already be in the\ngame's PC or bag.\n\n",
+			       nm[0] ? nm : "?");
+		}
+	if (pend.st_return == WP_STARTED) {
+		if (!cut++)
+			consoleClear();
+		printf("\"%s\" going back to its game\nwas cut off. If it is still in the\nwalker slot: Send to walker ->\n"
+		       "X (put it back). A copy already\nin the game is found then and the\nextra one removed.\n\n", pend.nick);
+	}
+	if (pend.st_gains == WP_STARTED || pend.st_watts == WP_STARTED) {
+		if (!cut++)
+			consoleClear();
+		printf("The walk's %s step was cut\noff and is not done again.\n\n",
+		       pend.st_gains == WP_STARTED ? "EXP / gains" : "watts");
+	}
+	int settled = wp_settle_started(&pend);
+	if (settled) {
+		dbg_printf("pending: %d step(s) were cut off half-way and are not repeated", settled);
+		ledger("pending walk: %d step(s) cut off half-way, not repeated (bank=%d/%d pk=%08lx)", settled,
+		       (int)pend.bank_box + 1, (int)pend.bank_slot + 1, (unsigned long)pend.bank_fp);
+		printf("These %d step(s) are NOT done\nagain (no doubles).\n", settled);
+		wait_key();
+		pend_save();
+	}
+	return 1;
+}
+
+// Runs every step that is still to do. res may be NULL (start-up / a confirmed end): lines are printed only.
+static void pending_run(ui_result_info *res)
+{
+	static ui_result_info dummy;
+	if (!res) {
+		memset(&dummy, 0, sizeof(dummy));
+		res = &dummy;
+	}
+	if (pend.state != WP_ENDED)
+		return;
+	unsigned long long game = ((unsigned long long)pend.game_hi << 32) | pend.game_lo;
+	// 1. watts -> the walked Pokemon's game
+	if (pend.st_watts == WP_TODO) {
+		pend.st_watts = WP_STARTED;
+		if (pend_save() == 0) {
+			if (game) {
+				int wr = watts_add(game, pend.watts);
+				ledger("  watts %u -> game %016llx (now %u)%s", (unsigned)pend.watts, game, watts_for_game(game),
+				       wr ? " WRITE FAILED" : "");
+			}
+			pend.st_watts = WP_DONE;
+			pend_save();
+		}
+	}
+	// 2. the gains, and the walking mark cleared (W4)
+	if (pend.st_gains == WP_TODO) {
+		pend.st_gains = WP_STARTED;
+		if (pend_save() == 0) {
+			char why[96];
+			storage_walk_result g;
+			unsigned long new_fp = 0;
+			int box = pend.bank_box, slot = pend.bank_slot;
+			if (storage_walk_return(box, slot, pend.bank_fp, pend.walk_steps, pend.ev, &g, &new_fp, why,
+			                        sizeof(why)) == 0) {
+				printf("Back in PocketPKMN box %d slot %d.\n", box + 1, slot + 1);
+				res->gains = 1;
+				res->level_before = g.level_before;
+				res->level_after = g.level_after;
+				res->exp_gain = g.exp_after - g.exp_before;
+				res->has_friendship = g.friendship;
+				res->friend_before = g.friend_before;
+				res->friend_after = g.friend_after;
+				res->ev_stat = g.ev_stat;
+				res->ev_before = g.ev_before;
+				res->ev_after = g.ev_after;
+				if (g.level_after > g.level_before)
+					printf("Lv %u -> %u!\n", g.level_before, g.level_after);
+				printf("EXP +%u", g.exp_after - g.exp_before);
+				if (g.friendship)
+					printf(", friendship %u -> %u", g.friend_before, g.friend_after);
+				printf("\n");
+				if (g.ev_stat >= 0)
+					printf("%s EVs %u -> %u\n", k_ev_names[g.ev_stat], g.ev_before, g.ev_after);
+				ledger("  back in bank=%d/%d pk=%08lx steps=%u lv=%u->%u exp=%u->%u friendship=%u->%u ev=%d %u->%u "
+				       "pk-now=%08lx", box + 1, slot + 1, (unsigned long)pend.bank_fp, g.steps, g.level_before,
+				       g.level_after, g.exp_before, g.exp_after, g.friend_before, g.friend_after, g.ev_stat,
+				       g.ev_before, g.ev_after, new_fp);
+			} else {
+				// The gains could not be written: at least end the walking mark, so the Pokemon is free again.
+				printf("Gains not applied: %s\n", why);
+				snprintf(res->back, sizeof(res->back), "Gains not applied:\n%s", why);
+				dbg_printf("walk end: gains not applied: %s", why);
+				if (storage_walk_mark(box, slot, 0, pend.bank_fp, why, sizeof(why)) == 0) {
+					printf("Back in PocketPKMN box %d slot %d.\n", box + 1, slot + 1);
+					ledger("  back in bank=%d/%d pk=%08lx (no gains)", box + 1, slot + 1, (unsigned long)pend.bank_fp);
+				} else {
+					printf("Clearing its walking mark failed:\n%s\n", why);
+					dbg_printf("walk end: walking mark not cleared: %s", why);
+				}
+			}
+			pend.st_gains = WP_DONE;
+			pend_save();
+			flush_log();
+		}
+	}
+	if (pend.one_slot && pend.st_gains == WP_DONE) {
+		// 3. the catches - made from the copy of the walked Pokemon's entry (its game and trainer), one by one
+		int open_c = 0;
+		for (int i = 0; i < pend.ncatch; i++)
+			open_c += pend.st_catch[i] == WP_TODO;
+		if (open_c) {
+			printf("Sending what it caught to its game...\n");
+			refresh();
+			static storage_catch sc[WP_MAX_CATCHES];
+			static unsigned char skip_c[WP_MAX_CATCHES];
+			for (int i = 0; i < pend.ncatch; i++) {
+				sc[i].species = pend.catches[i].species;
+				sc[i].level = pend.catches[i].level;
+				for (int m = 0; m < 4; m++)
+					sc[i].moves[m] = pend.catches[i].moves[m];
+				sc[i].female = pend.catches[i].female;
+				sc[i].shiny = pend.catches[i].shiny;
+				sc[i].form = pend.catches[i].form;
+				skip_c[i] = pend.st_catch[i] != WP_TODO;
+			}
+			storage_step_hooks h = {NULL, pend_begin_catch, pend_end_catch, skip_c};
+			static char cm[400];
+			int got = storage_deliver_catches(pend.entry, sc, pend.ncatch, &h, cm, sizeof(cm));
+			printf("%s", cm);
+			snprintf(res->caught_msg, sizeof(res->caught_msg), "%s", cm);
+			if (got == -2) { // can never be made: finished (the log and the ledger keep the records)
+				for (int i = 0; i < pend.ncatch; i++)
+					if (pend.st_catch[i] == WP_TODO)
+						pend.st_catch[i] = WP_DONE;
+				pend_save();
+			}
+			int left = 0;
+			for (int i = 0; i < pend.ncatch; i++)
+				left += pend.st_catch[i] == WP_TODO;
+			ledger("  catches: %d of %d into the game, %d waiting", got < 0 ? 0 : got, open_c, left);
+			// v0.53 (user: "make sure to have a message explaining where items/pokemon are sent to")
+			if (left)
+				snprintf(res->sent_line[0], sizeof(res->sent_line[0]),
+				         "Caught Pok\xC3\xA9mon wait for their game (sent when it is here).");
+			else if (got >= open_c)
+				snprintf(res->sent_line[0], sizeof(res->sent_line[0]), "The Pok\xC3\xA9mon it caught are in its game's boxes.");
+			else if (got > 0)
+				snprintf(res->sent_line[0], sizeof(res->sent_line[0]),
+				         "%d of %d caught Pok\xC3\xA9mon are in its game, the rest in PocketPKMN.", got, open_c);
+			else
+				snprintf(res->sent_line[0], sizeof(res->sent_line[0]),
+				         "Caught Pok\xC3\xA9mon are in PocketPKMN (Game settings).");
+		}
+		// 4. the items, one by one (Gen 2 -> the PC item storage, X/Y and later -> the bag)
+		int open_i = 0;
+		for (int i = 0; i < pend.nitem; i++)
+			open_i += pend.st_item[i] == WP_TODO;
+		if (open_i) {
+			printf("Sending what it found to its game...\n");
+			refresh();
+			static storage_found_item fi[WP_MAX_ITEMS];
+			static unsigned char skip_i[WP_MAX_ITEMS];
+			for (int i = 0; i < pend.nitem; i++) {
+				fi[i].id = pend.item_id[i];
+				fi[i].gen2id = pend.item_gen2[i];
+				skip_i[i] = pend.st_item[i] != WP_TODO;
+			}
+			storage_step_hooks h = {NULL, pend_begin_item, pend_end_item, skip_i};
+			static char im[400];
+			char where[16];
+			int sent = storage_deliver_items(pend.entry, fi, pend.nitem, &h, where, sizeof(where), im, sizeof(im));
+			printf("%s", im);
+			if (sent == -2) {
+				for (int i = 0; i < pend.nitem; i++)
+					if (pend.st_item[i] == WP_TODO)
+						pend.st_item[i] = WP_DONE;
+				pend_save();
+			}
+			int left = 0;
+			for (int i = 0; i < pend.nitem; i++)
+				left += pend.st_item[i] == WP_TODO;
+			ledger("  items: %d of %d into the game (%s), %d waiting", sent < 0 ? 0 : sent, open_i, where, left);
+			if (left)
+				snprintf(res->sent_line[1], sizeof(res->sent_line[1]), "The items wait for their game (sent when it is here).");
+			else if (sent >= open_i)
+				snprintf(res->sent_line[1], sizeof(res->sent_line[1]), "The items it found are in %s.", where);
+			else if (sent > 0)
+				snprintf(res->sent_line[1], sizeof(res->sent_line[1]), "%d of %d items are in %s.", sent, open_i, where);
+			else
+				snprintf(res->sent_line[1], sizeof(res->sent_line[1]), "The items could not be sent (debug view).");
+		}
+		// 5. the walked Pokemon back into its game (it waits in the walker slot if the game is not here)
+		if (pend.st_return == WP_TODO) {
+			pend.st_return = WP_STARTED;
+			if (pend_save() == 0) {
+				printf("Putting it back into its game...\n");
+				refresh();
+				char m[160];
+				int back = storage_return_to_game(m, sizeof(m));
+				printf("%s\n", m);
+				if (!res->back[0])
+					snprintf(res->back, sizeof(res->back), "%s", m);
+				ledger("  return to game: %s",
+				       back == 1 ? "done" : back == 0 ? "waiting in the walker slot" : "error");
+				pend.st_return = WP_DONE;
+				pend_save();
+			}
+		}
+	}
+	if (wp_all_done(&pend)) {
+		int rr = wp_remove(PENDING_PATH);
+		ledger("pending walk: everything delivered%s", rr ? " (FILE NOT REMOVED)" : "");
+		dbg_printf("pending: all done, file removed: %s", rr ? "NO" : "yes");
+	} else {
+		dbg_printf("pending: kept - something waits for its game");
+	}
+	flush_log();
+}
+
+// At start-up (and at End walk): deliver what an earlier walk left waiting. Shows a screen only when something
+// was waiting.
+static void pending_resume(int at_start)
+{
+	if (!pend_load())
+		return;
+	consoleSelect(&top);
+	if (at_start)
+		consoleClear();
+	if (pend.state == WP_MAYBE) {
+		if (at_start) {
+			printf("A walk end of \"%s\" is not\nconfirmed (the walker's answer was\nlost). Use End walk with that\n"
+			       "walker: PocketPKMN checks it then.\n", pend.nick);
+			wait_key();
+		}
+		return;
+	}
+	printf("Results of the walk of \"%s\"\nare still waiting. Delivering...\n\n", pend.nick);
+	refresh();
+	pending_run(NULL);
+	wait_key();
+}
+
+// Only one walk's results can wait at a time. Returns 1 (and has told the user) when an earlier walk's results still
+// wait, so a new send / end must not start; the user can give the waiting catches / items up (L+R).
+static int pending_blocks(const char *action)
+{
+	if (!wp_load(PENDING_PATH, &pend))
+		return 0;
+	consoleSelect(&top);
+	consoleClear();
+	if (pend.state == WP_MAYBE) {
+		printf("The last End walk of \"%s\"\nis not confirmed (its answer was\nlost). Use End walk with that\n"
+		       "walker first.\n", pend.nick);
+		wait_key();
+		return 1;
+	}
+	int c = 0, it = 0;
+	for (int i = 0; i < pend.ncatch; i++)
+		c += pend.st_catch[i] == WP_TODO;
+	for (int i = 0; i < pend.nitem; i++)
+		it += pend.st_item[i] == WP_TODO;
+	printf("The walk of \"%s\" left %d\ncaught Pokemon and %d item(s)\nwaiting for its game, which is not\n"
+	       "in this 3DS. Put that game in and\nrestart PocketPKMN to deliver them.\n\nTo %s anyway, they must be\n"
+	       "given up (they are then lost).\n", pend.nick, c, it, action);
+	if (!ask("Give them up?", 1))
+		return 1;
+	ledger("pending walk GIVEN UP by the user (\"%s\": %d catch(es), %d item(s) waiting)", pend.nick, c, it);
+	wp_remove(PENDING_PATH);
+	flush_log();
+	return 0;
+}
+
 static void do_walk_end(void)
 {
+	pending_resume(0); // v0.70: an earlier walk's waiting catches / items first
+	if (wp_load(PENDING_PATH, &pend) && pend.state == WP_ENDED && pending_blocks("end another walk"))
+		return;
 	pw_identity id;
 	u8 id_raw[PW_IDENTITY_SIZE];
 	if (part1_backup("WALK END", "walk end (backup)", &id, id_raw) < 0) {
@@ -1750,6 +2153,36 @@ static void do_walk_end(void)
 		return;
 	}
 	const u8 *route = eeprom + EE_ROUTE;
+	// v0.70 (addendum finding C): an earlier end command whose answer was lost - this connection shows what happened
+	if (wp_load(PENDING_PATH, &pend) && pend.state == WP_MAYBE && pend.walker == (u32)walker_key(&id)) {
+		int box = -1, slot = -1;
+		unsigned long fp = 0;
+		int still = (id.flags & PW_IDFLAG_HAS_POKE) && bank_walk_of(&id, route, &box, &slot, &fp) &&
+		            box == pend.bank_box && slot == pend.bank_slot && fp == pend.bank_fp;
+		if (still) {
+			// the walker still has that walk: the end did not happen; forget the results, end it normally now
+			wp_remove(PENDING_PATH);
+			ledger("walk-end-maybe walker=%08lx: NOT ended (the walk is still on the walker)", walker_key(&id));
+			printf("\nThe last End walk did not reach\nthe walker. The walk is still on.\n");
+		} else {
+			pend.state = WP_ENDED;
+			pend_save();
+			ledger("walk-end walker=%08lx confirmed (the answer had been lost) \"%s\" watts=%u", walker_key(&id),
+			       pend.nick, (unsigned)pend.watts);
+			printf("\nThe last End walk DID end the\nwalk of \"%s\" (its answer was\nlost). Delivering its results...\n\n",
+			       pend.nick);
+			refresh();
+			pending_run(NULL);
+			wait_key();
+			return;
+		}
+	} else if (wp_load(PENDING_PATH, &pend) && pend.state == WP_MAYBE) {
+		// a lost end answer of ANOTHER walker: only that walker can settle it; ending this walk now would overwrite it
+		printf("\nThe last End walk of \"%s\" was\nwith another walker and is not\nconfirmed. Use End walk with that\n"
+		       "walker first. Nothing was changed.\n", pend.nick);
+		wait_key();
+		return;
+	}
 	if (!(id.flags & PW_IDFLAG_HAS_POKE)) {
 		printf("\nNo Pokemon is on a walk.\n");
 		if (!offer_lost_walk("the walker has no Pokemon")) // v0.50 (audit B2)
@@ -1803,211 +2236,165 @@ static void do_walk_end(void)
 	res.ev_stat = -1;
 
 	session s;
+	u8 results[0x80];
+	int final_sent = 0; // v0.70 (finding C): the end command went out
 	int r = part2_open(&s, "WALK END", "walk end", &id);
 	if (r == 0) {
 		// The game's order: 20 (done), 40 + identity, reads, ping, 4E.
 		unsigned ident_at = s.reconnects;
 		r = pw_send_identity(&s.link, PW_CMD_IDENTITY_RETURN, id_raw);
 		dbg_printf("walk end: identity 40 %s", pw_strerror(r));
-		u8 results[0x80];
 		if (r == 0)
 			r = read_chunk(&s, 0xCE80, results); // fresh: watts and finds may have changed since part 1
 		if (r == 0)
 			r = ready_for_final(&s, PW_CMD_IDENTITY_RETURN, id_raw, &ident_at);
 		if (r == 0) {
+			final_sent = 1;
 			r = pw_walk_end(&s.link);
 			dbg_printf("walk end: 4E %s", pw_strerror(r));
 		}
+	}
+	unsigned long steps_total = (unsigned long)s.id.total_steps;
+	session_close(&s, r != PW_ERR_CANCELLED);
+	// v0.70 (addendum finding C): the end command went out but its answer was lost - the walker may have ended the
+	// walk (and erased it). The results read just before are kept, marked "maybe"; the next End walk confirms.
+	int maybe = r != 0 && final_sent && r != PW_ERR_CANCELLED;
+	// The results are read out after the link (v0.70; nothing slow while the walker is connected).
+	char nick[16];
+	route_text(route, 0x10, 11, nick, sizeof(nick));
+	unsigned watts = 0;
+	if (r == 0 || maybe) {
+		watts = (unsigned)((results[EE_WATTS - 0xCE80] << 8) | results[EE_WATTS - 0xCE80 + 1]);
+		pw_poke_summary p;
+		pw_poke_summary_parse(route, &p);
+		ledger("%s walker=%08lx pokemon=#%u \"%s\" watts=%u steps-total=%lu", maybe ? "walk-end-maybe" : "walk-end",
+		       walker_key(&id), p.species, nick, watts, steps_total);
 		if (r == 0) {
-			unsigned watts = (unsigned)((results[EE_WATTS - 0xCE80] << 8) | results[EE_WATTS - 0xCE80 + 1]);
-			char nick[16];
-			route_text(route, 0x10, 11, nick, sizeof(nick));
-			pw_poke_summary p;
-			pw_poke_summary_parse(route, &p);
-			ledger("walk-end walker=%08lx pokemon=#%u \"%s\" watts=%u steps-total=%lu", walker_key(&id), p.species,
-			       nick, watts, (unsigned long)s.id.total_steps);
 			printf("\nWALK ENDED. \"%s\" is back.\nWatts: %u\n", nick, watts);
 			result_sound(0);
 			res.ok = 1;
-			snprintf(res.nick, sizeof(res.nick), "%s", nick);
-			res.watts = watts;
-			for (int i = 0; i < 3; i++) {
-				pw_poke_summary c;
-				pw_poke_summary_parse(results + (EE_CAUGHT - 0xCE80) + 16 * i, &c);
-				if (c.species) {
-					printf("Caught: #%u Lv %u\n", c.species, c.level);
-					if (res.ncaught < 3) {
-						int k = res.ncaught++;
-						// v0.53: kept for making the legal catch after the link (storage_deliver_catches)
-						walk_catches[k].species = c.species;
-						walk_catches[k].level = c.level;
-						for (int m = 0; m < 4; m++)
-							walk_catches[k].moves[m] = c.moves[m];
-						walk_catches[k].female = (c.variant & 0x20) != 0;
-						walk_catches[k].shiny = (c.flags & 0x02) != 0;
-						walk_catches[k].form = (c.flags & 0x01) ? (c.variant & 0x1F) : 0; // v0.55: Alolan etc.
-						res.caught_species[k] = c.species;
-						res.caught_level[k] = c.level;
-						for (int q = 0; q < 3; q++) // the route's own picture + name of that Pokemon
-							if ((unsigned)(res_route.poke[q].summary[0] | (res_route.poke[q].summary[1] << 8)) == c.species) {
-								res.caught_small[k] = res_route.poke[q].small;
-								res.caught_name[k] = res_route.poke[q].name_img;
-							}
-					}
-					ledger("  caught #%u lv %u item %u moves %u %u %u %u variant %02x flags %02x", c.species,
-					       c.level, c.held_item, c.moves[0], c.moves[1], c.moves[2], c.moves[3], c.variant,
-					       c.flags);
-				}
-			}
-			for (int i = 0; i < 3; i++) {
-				const u8 *it = results + (EE_DOWSED - 0xCE80) + 4 * i;
-				unsigned item = (unsigned)(it[0] | (it[1] << 8));
-				if (item) {
-					printf("Found item #%u\n", item);
-					res_add_item(&res, &res_route, item, 0); // dowsed: a course item
-					ledger("  dowsed item %u", item);
-				}
-			}
-			for (int i = 0; i < 10 && (EE_GIFTED - 0xCE80) + 4 * i + 1 < 0x80; i++) {
-				const u8 *it = results + (EE_GIFTED - 0xCE80) + 4 * i;
-				unsigned item = (unsigned)(it[0] | (it[1] << 8));
-				if (item) {
-					printf("Gift item #%u\n", item);
-					res_add_item(&res, &res_route, item, 1); // gifted
-					ledger("  gifted item %u", item);
-				}
-			}
-			// Event Pokemon / item (special route or gift), from the part 1 backup.
-			if (eeprom[EE_SPECIAL_FLAGS] & 0x20) {
-				pw_poke_summary e;
-				pw_poke_summary_parse(eeprom + EE_EVENT_POKE, &e);
-				printf("Event Pokemon: #%u Lv %u\n", e.species, e.level);
-				ledger("  event pokemon #%u lv %u", e.species, e.level);
-			}
-			if (eeprom[EE_SPECIAL_FLAGS] & 0x40) {
-				unsigned item = (unsigned)(eeprom[EE_EVENT_ITEM] | (eeprom[EE_EVENT_ITEM + 1] << 8));
-				printf("Event item #%u\n", item);
-				ledger("  event item %u", item);
-			}
-			printf("(Recorded in /3ds/pocketpkmn/ledger.txt)\n");
-		} else {
-			printf("\nWalk end failed: %s\n", pw_strerror(r));
-			result_sound(r);
 		}
+		snprintf(res.nick, sizeof(res.nick), "%s", nick);
+		res.watts = watts;
+		for (int i = 0; i < 3; i++) {
+			pw_poke_summary c;
+			pw_poke_summary_parse(results + (EE_CAUGHT - 0xCE80) + 16 * i, &c);
+			if (c.species) {
+				printf("Caught: #%u Lv %u\n", c.species, c.level);
+				if (res.ncaught < 3) {
+					int k = res.ncaught++;
+					// v0.53: kept for making the legal catch after the link (storage_deliver_catches)
+					walk_catches[k].species = c.species;
+					walk_catches[k].level = c.level;
+					for (int m = 0; m < 4; m++)
+						walk_catches[k].moves[m] = c.moves[m];
+					walk_catches[k].female = (c.variant & 0x20) != 0;
+					walk_catches[k].shiny = (c.flags & 0x02) != 0;
+					walk_catches[k].form = (c.flags & 0x01) ? (c.variant & 0x1F) : 0; // v0.55: Alolan etc.
+					res.caught_species[k] = c.species;
+					res.caught_level[k] = c.level;
+					for (int q = 0; q < 3; q++) // the route's own picture + name of that Pokemon
+						if ((unsigned)(res_route.poke[q].summary[0] | (res_route.poke[q].summary[1] << 8)) == c.species) {
+							res.caught_small[k] = res_route.poke[q].small;
+							res.caught_name[k] = res_route.poke[q].name_img;
+						}
+				}
+				ledger("  caught #%u lv %u item %u moves %u %u %u %u variant %02x flags %02x", c.species, c.level,
+				       c.held_item, c.moves[0], c.moves[1], c.moves[2], c.moves[3], c.variant, c.flags);
+			}
+		}
+		for (int i = 0; i < 3; i++) {
+			const u8 *it = results + (EE_DOWSED - 0xCE80) + 4 * i;
+			unsigned item = (unsigned)(it[0] | (it[1] << 8));
+			if (item) {
+				printf("Found item #%u\n", item);
+				res_add_item(&res, &res_route, item, 0); // dowsed: a course item
+				ledger("  dowsed item %u", item);
+			}
+		}
+		for (int i = 0; i < 10 && (EE_GIFTED - 0xCE80) + 4 * i + 1 < 0x80; i++) {
+			const u8 *it = results + (EE_GIFTED - 0xCE80) + 4 * i;
+			unsigned item = (unsigned)(it[0] | (it[1] << 8));
+			if (item) {
+				printf("Gift item #%u\n", item);
+				res_add_item(&res, &res_route, item, 1); // gifted
+				ledger("  gifted item %u", item);
+			}
+		}
+		// Event Pokemon / item (special route or gift), from the part 1 backup.
+		if (eeprom[EE_SPECIAL_FLAGS] & 0x20) {
+			pw_poke_summary e;
+			pw_poke_summary_parse(eeprom + EE_EVENT_POKE, &e);
+			printf("Event Pokemon: #%u Lv %u\n", e.species, e.level);
+			ledger("  event pokemon #%u lv %u", e.species, e.level);
+		}
+		if (eeprom[EE_SPECIAL_FLAGS] & 0x40) {
+			unsigned item = (unsigned)(eeprom[EE_EVENT_ITEM] | (eeprom[EE_EVENT_ITEM + 1] << 8));
+			printf("Event item #%u\n", item);
+			ledger("  event item %u", item);
+		}
+		printf("(Recorded in /3ds/pocketpkmn/ledger.txt)\n");
+	} else if (r != 0) {
+		printf("\nWalk end failed: %s\n", pw_strerror(r));
+		if (!final_sent)
+			printf("The end command was not sent:\nthe walk is still on the walker.\n");
+		result_sound(r);
 	}
-	session_close(&s, r != PW_ERR_CANCELLED);
 	// v0.50: which item numbering the course's items use (GSC courses: Gen 2 ids) - asked while the Pokemon is
 	// still in its slot (no walker connected now)
 	int items_gen2 = from_bank && storage_walk_ev_cap(bank_box, bank_slot) == 0;
-	if (r == 0 && from_bank && res.ok) { // v0.53: this walk's watts go to the walked Pokemon's own game
+	if ((r == 0 || maybe) && from_bank) {
+		// v0.70 (finding 4): FIRST the pending-walk file - everything needed to deliver this walk's results
+		wp_init(&pend);
+		pend.state = maybe ? WP_MAYBE : WP_ENDED;
+		pend.walker = (u32)walker_key(&id);
+		pend.route = (u32)fnv1a(route, 0xBE);
+		pend.steps_total = (u32)steps_total;
+		pend.bank_box = bank_box;
+		pend.bank_slot = bank_slot;
+		pend.bank_fp = (u32)bank_fp;
+		pend.walk_steps = walk_steps;
+		pend.ev = bank_ev;
+		pend.items_gen2 = items_gen2;
+		pend.watts = watts;
+		pend.one_slot = bank_box == STORAGE_WALK_BOX && bank_slot == STORAGE_WALK_SLOT;
+		snprintf(pend.nick, sizeof(pend.nick), "%s", nick);
+		storage_walk_entry(bank_box, bank_slot, pend.entry);
 		char wot[24];
 		unsigned long long wtid = 0;
 		if (storage_walk_origin(bank_box, bank_slot, wot, sizeof(wot), NULL, NULL, &wtid) && wtid) {
-			int wr = watts_add(wtid, res.watts);
-			ledger("  watts %u -> game %016llx (now %u)%s", res.watts, wtid, watts_for_game(wtid),
-			       wr ? " WRITE FAILED" : "");
+			pend.game_lo = (u32)wtid;
+			pend.game_hi = (u32)(wtid >> 32);
 		}
-	}
-	if (r == 0 && from_bank) {
-		// W4: back in the bank with what the walk gave it (no walker connected now). The walking mark is
-		// cleared in the same bank write.
-		char why[96];
-		storage_walk_result g;
-		unsigned long new_fp = 0;
-		if (storage_walk_return(bank_box, bank_slot, bank_fp, walk_steps, bank_ev, &g, &new_fp, why, sizeof(why)) == 0) {
-			printf("Back in PocketPKMN box %d slot %d.\n", bank_box + 1, bank_slot + 1);
-			res.gains = 1;
-			res.level_before = g.level_before;
-			res.level_after = g.level_after;
-			res.exp_gain = g.exp_after - g.exp_before;
-			res.has_friendship = g.friendship;
-			res.friend_before = g.friend_before;
-			res.friend_after = g.friend_after;
-			res.ev_stat = g.ev_stat;
-			res.ev_before = g.ev_before;
-			res.ev_after = g.ev_after;
-			if (g.level_after > g.level_before)
-				printf("Lv %u -> %u!\n", g.level_before, g.level_after);
-			printf("EXP +%u", g.exp_after - g.exp_before);
-			if (g.friendship)
-				printf(", friendship %u -> %u", g.friend_before, g.friend_after);
-			printf("\n");
-			if (g.ev_stat >= 0)
-				printf("%s EVs %u -> %u\n", k_ev_names[g.ev_stat], g.ev_before, g.ev_after);
-			ledger("  back in bank=%d/%d pk=%08lx steps=%u lv=%u->%u exp=%u->%u friendship=%u->%u ev=%d %u->%u "
-			       "pk-now=%08lx", bank_box + 1, bank_slot + 1, bank_fp, g.steps, g.level_before, g.level_after,
-			       g.exp_before, g.exp_after, g.friend_before, g.friend_after, g.ev_stat, g.ev_before, g.ev_after,
-			       new_fp);
-			// One-slot flow: from the walker slot straight back into its game.
-			if (bank_box == STORAGE_WALK_BOX && bank_slot == STORAGE_WALK_SLOT) {
-				flush_log();
-				// v0.53: the catches first - they are made from the walked Pokemon's game and trainer (its origin
-				// record), which the walker slot still holds until the Pokemon itself goes back
-				if (res.ncaught > 0) {
-					printf("Sending what it caught to its game...\n");
-					refresh();
-					static char cm[400];
-					int got = storage_deliver_catches(bank_box, bank_slot, walk_catches, res.ncaught, cm, sizeof(cm));
-					printf("%s", cm);
-					snprintf(res.caught_msg, sizeof(res.caught_msg), "%s", cm);
-					ledger("  catches: %d of %d into the game", got < 0 ? 0 : got, res.ncaught);
-					// v0.53 (user: "make sure to have a message explaining where items/pokemon are sent to")
-					if (got >= res.ncaught)
-						snprintf(res.sent_line[0], sizeof(res.sent_line[0]),
-						         "The Pok\xC3\xA9mon it caught are in its game's boxes.");
-					else if (got > 0)
-						snprintf(res.sent_line[0], sizeof(res.sent_line[0]),
-						         "%d of %d caught Pok\xC3\xA9mon are in its game, the rest in PocketPKMN.", got,
-						         res.ncaught);
-					else
-						snprintf(res.sent_line[0], sizeof(res.sent_line[0]),
-						         "Caught Pok\xC3\xA9mon wait in PocketPKMN (Game settings).");
-				}
-				if (res.nitems > 0) { // v0.53: Gen 2 -> the PC item storage, X/Y -> the bag
-					printf("Sending what it found to its game...\n");
-					refresh();
-					static storage_found_item fi[13];
-					int ni = res.nitems < 13 ? res.nitems : 13;
-					for (int i = 0; i < ni; i++) {
-						fi[i].id = res.item[i];
-						fi[i].gen2id = res.item_name[i] ? items_gen2 : 0; // course item: the course's numbering
-					}
-					static char im[400];
-					char where[16];
-					int sent = storage_deliver_items(bank_box, bank_slot, fi, ni, where, sizeof(where), im, sizeof(im));
-					printf("%s", im);
-					ledger("  items: %d of %d into the game (%s)", sent < 0 ? 0 : sent, ni, where);
-					if (sent >= ni)
-						snprintf(res.sent_line[1], sizeof(res.sent_line[1]), "The items it found are in %s.", where);
-					else if (sent > 0)
-						snprintf(res.sent_line[1], sizeof(res.sent_line[1]), "%d of %d items are in %s.", sent, ni,
-						         where);
-					else
-						snprintf(res.sent_line[1], sizeof(res.sent_line[1]),
-						         "The items could not be sent (debug view).");
-				}
-				printf("Putting it back into its game...\n");
-				refresh();
-				char m[160];
-				int back = storage_return_to_game(m, sizeof(m));
-				printf("%s\n", m);
-				snprintf(res.back, sizeof(res.back), "%s", m);
-				ledger("  return to game: %s", back == 1 ? "done" : back == 0 ? "waiting in the walker slot" : "error");
-			}
-		} else {
-			// The gains could not be written: at least end the walking mark, so the Pokemon is free again.
-			printf("Gains not applied: %s\n", why);
-			snprintf(res.back, sizeof(res.back), "Gains not applied:\n%s", why);
-			dbg_printf("walk end: gains not applied: %s", why);
-			if (storage_walk_mark(bank_box, bank_slot, 0, bank_fp, why, sizeof(why)) == 0) {
-				printf("Back in PocketPKMN box %d slot %d.\n", bank_box + 1, bank_slot + 1);
-				ledger("  back in bank=%d/%d pk=%08lx (no gains)", bank_box + 1, bank_slot + 1, bank_fp);
-			} else {
-				printf("Clearing its walking mark failed:\n%s\n", why);
-				dbg_printf("walk end: walking mark not cleared: %s", why);
-			}
+		pend.ncatch = res.ncaught;
+		for (int i = 0; i < res.ncaught; i++) {
+			pend.catches[i].species = walk_catches[i].species;
+			pend.catches[i].level = walk_catches[i].level;
+			for (int m = 0; m < 4; m++)
+				pend.catches[i].moves[m] = walk_catches[i].moves[m];
+			pend.catches[i].female = walk_catches[i].female;
+			pend.catches[i].shiny = walk_catches[i].shiny;
+			pend.catches[i].form = walk_catches[i].form;
 		}
+		pend.nitem = res.nitems < WP_MAX_ITEMS ? res.nitems : WP_MAX_ITEMS;
+		for (int i = 0; i < pend.nitem; i++) {
+			pend.item_id[i] = res.item[i];
+			pend.item_gen2[i] = res.item_name[i] ? items_gen2 : 0; // course item: the course's numbering
+		}
+		if (pend_save() != 0)
+			printf("\nWARNING: the walk's results could\nnot be written to the SD card.\n");
+		ledger("  pending walk written (%s): %d catch(es), %d item(s)", maybe ? "maybe ended" : "ended",
+		       (int)pend.ncatch, (int)pend.nitem);
 		flush_log();
+		if (maybe) {
+			dbg_printf("walk end: 4E answer lost (%s) - results kept, marked maybe ended", pw_strerror(r));
+			printf("\nThe walker did not answer the last\nstep. It may have ended the walk.\n"
+			       "Its results are kept. Use End walk\nagain with this walker: PocketPKMN\nchecks it and then "
+			       "delivers them.\n");
+			result_sound(r);
+		} else {
+			pending_run(&res);
+		}
 	}
 	if (res.ok) {
 		for (int i = 0; i < res.ncaught && i < 3; i++) // v0.50: names as text (romfs: only now, after the link)
@@ -2116,22 +2503,10 @@ static void do_reset(void)
 // True when the walker's checksummed block (sound data) is intact: every one
 // of the 16 sums matches. Such a walker was set up by a game before and still
 // holds its menu pictures.
+// v0.68: the rule itself lives in source/restore_plan.c (rp_checked_block_ok, same code) so the PC test uses it.
 static int checked_block_ok(const u8 *ee)
 {
-	int valid = 0;
-	for (int i = 0; i < 16; i++) {
-		const u8 *d = ee + EE_CHECKED_TABLE + 4 * i;
-		unsigned off = (unsigned)(d[0] | (d[1] << 8)), len = d[2];
-		if (0x8CF0 + off + len > EE_IMAGES_END)
-			return 0;
-		u8 sum = 0;
-		for (unsigned k = 0; k < len; k++)
-			sum = (u8)(sum + ee[0x8CF0 + off + k]);
-		if (sum != d[3])
-			return 0;
-		valid += len > 0;
-	}
-	return valid > 0;
+	return rp_checked_block_ok(ee);
 }
 
 // The 3DS profile name, reduced to what the walker's font has.
@@ -3045,7 +3420,11 @@ int main(void)
 	ir_raw_checkpoint = log_checkpoint;
 	settings_load(); // v0.47 (after the folder move, before the first screen)
 	sound_init(set_music, set_sounds); // v0.55: everything into memory now, nothing read from the SD card later
+	// v0.62: the DS game card save chip is reached through pxi:dev (lib/pksm-spi) - without it every SPI request
+	// failed with "invalid handle" (console test of v0.61). v0.63: opened only around each card access
+	// (storage.cpp PxiDevGuard), never held while the app sits suspended (removing the card then froze the console).
 	ensure_trainer();
+	pending_resume(1); // v0.70 (review finding 4): an earlier walk's catches / items whose game was not here
 	home_loop();
 
 	// v0.49 (user: the CIA "stuck on closing software"): each exit step goes into the link log, so the next hang

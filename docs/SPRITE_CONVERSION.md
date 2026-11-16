@@ -138,6 +138,29 @@ Tool `tools/walker_alola.py fetch <dir>` / `convert <dir> <out>` → `art_src/al
   lines in `tools/walker_alola_colours.txt`, lighter spread as for Zekrom; Golem ("should move down a little") →
   face point y 40 → 36. User: "both look better". In the app since v0.58: `romfs/sprites/forms/NNN_f1.bin` (`tools/sync_form_sprites.sh`).
 
+## 8d. Gen 5 second key frame (2026-11-15)
+
+The user's Gen 5 two-frame set (made outside this project) had frame-2 poses that "don't move enough from their
+1st pose or ... look bad" — 113 marked with red dots, + Joltik–Klinklang (not Ferrothorn), + the B2W2-only forms
+(Tornadus/Thundurus/Landorus Therian, Black/White Kyurem, Keldeo Resolute: Bulbagarden "Spr 5b2 641T.png" …).
+Tool `tools/walker_gen5_keys.py fetch|pick|save` on the animated "Spr 5b NNN.png" APNGs (frame counts match the
+user's sheet).
+- Automatic options (A/B/C): pose change measured AFTER lining frames up (user: "avoid frames where the pokemon is
+  just like jumping up"), no squash/stretch, no blended colours, no colour flashes, options far apart. Round 1: the
+  user approved 40; round 2 (new options): they asked for every frame instead.
+- What worked best: a sheet of EVERY frame (real size, frame numbers), the user marks the chosen frame with a
+  green dot, the dot is read back by position (`allframes_layout.json`). Split images under 8000 px for the phone.
+- Result: `art_src/gen5keys/keys/<key>_1.png`, `<key>_2.png`, `keyframes.json` (124).
+- Walker files (user: "Make walker files"): `tools/walker_gen5_two.py <keys> art_src/sprites5to7/out
+  art_src/gen5two/out` → `<key>.bin` (0x780). The reviewed small sprite + large frame 1 are kept byte for byte
+  (checked per file); only large frame 2 is new. Converter options added to `to_walker_frames` (both off by
+  default; a normal convert stays byte-identical to all 314 files — checked): `ref_first=True` = window placed by
+  frame 1 alone, frame 2's moved parts not cut; `window_shift=(dx,dy)` = the window of an older reviewed file.
+  86 exact; 21 "patched" (reviewed frame 1 came from an older rule version / a hand edit: re-converted in the
+  reviewed window, frame 2 = reviewed frame 1 except where the pose changed); 17 forms/genders "new" (no reviewed
+  file; small sprite = the base Pokemon's; own face points for 641T/642T/645T/646B/646W/647R in
+  `tools/walker_gen5_form_heads.txt`). Report: `art_src/gen5two/out/report.txt`. Not reviewed yet; not in romfs.
+
 ## 9. Open for later
 
 - Gen 1–4 sprites for users without HGSS (source not decided).

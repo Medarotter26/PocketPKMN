@@ -1,0 +1,3 @@
+# Gen 5 second frame moved before converting (walker_gen5_two.py): "key dx dy" in the walker picture,
+# dx > 0 = right, dy > 0 = down.
+582 -20 0   # Vanillite (2026-11-16: "Vanillite moves too far right for its second frame animation")

@@ -101,6 +101,14 @@ int main(void)
 	CHECK(routes_file_for(0x00040000001B5000ULL, 7, &v) && !strcmp(v, "us"), "Ultra Sun -> sm/us");
 	CHECK(routes_file_for(0x00040000001B5100ULL, 7, &v) && !strcmp(v, "um"), "Ultra Moon -> sm/um");
 	CHECK(!routes_unlocked("trials=3", 2, 0, 0) && routes_unlocked("trials=3", 3, 0, 0), "trials=3 opens at 3");
+	// v0.61: Diamond / Pearl / Platinum - DS saves carry a made-up title ID 0x0004800D, game in bits 24-31
+	one("dppt", "d", 4);
+	one("dppt", "p", 4);
+	one("dppt", "pt", 4);
+	CHECK(routes_file_for(0x0004800D01000000ULL, 4, &v) && !strcmp(v, "d"), "Diamond card -> dppt/d");
+	CHECK(routes_file_for(0x0004800D02ABCDEFULL, 4, &v) && !strcmp(v, "p"), "Pearl SD file -> dppt/p");
+	CHECK(routes_file_for(0x0004800D03000000ULL, 4, &v) && !strcmp(v, "pt"), "Platinum card -> dppt/pt");
+	CHECK(!routes_file_for(0x0004800D04000000ULL, 4, &v), "HeartGold: no courses yet");
 	{
 		char u[48];
 		routes_unlock_text("trials=6", u, sizeof u);

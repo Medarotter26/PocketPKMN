@@ -17,12 +17,13 @@ BUILD		:=	build
 PKSM		:=	lib/PKSM-Core
 SOURCES		:=	source \
 			$(PKSM)/source $(PKSM)/source/i18n $(PKSM)/source/personal $(PKSM)/source/pkx \
-			$(PKSM)/source/sav $(PKSM)/source/utils $(PKSM)/source/wcx $(PKSM)/memecrypto
+			$(PKSM)/source/sav $(PKSM)/source/utils $(PKSM)/source/wcx $(PKSM)/memecrypto \
+			lib/pksm-spi
 DATA		:=	data
 INCLUDES	:=	include \
 			$(PKSM)/include $(PKSM)/include/enums $(PKSM)/include/personal $(PKSM)/include/pkx \
 			$(PKSM)/include/sav $(PKSM)/include/utils $(PKSM)/include/wcx $(PKSM)/memecrypto \
-			$(PKSM)/pcg-cpp/include
+			$(PKSM)/pcg-cpp/include lib/pksm-spi
 GRAPHICS	:=	gfx
 GFXBUILD	:=	$(BUILD)
 # Run-time data for PKSM-Core (strings, species tables), mounted as romfs:/

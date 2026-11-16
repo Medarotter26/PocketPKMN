@@ -100,7 +100,7 @@ poke C 0 50 539 32 5000 490 68 2 280 ; Sawk: Low Sweep, Counter, Karate Chop, Br
 poke C 0 50 538 32 5000 233 279 480 34 ; Throh: Vital Throw, Revenge, Storm Throw, Body Slam
 item 0 20 275 7000 all ; Focus Sash
 item 1 20 230 6000 all ; Focus Band
-item 2 30 303 5000 all ; Fist Plate
+item 2 30 266 5000 all ; Muscle Band
 item 3 30 215 4000 all ; Macho Brace
 item 4 30 241 3000 all ; Black Belt
 item 5 40 189 2000 all ; Chople Berry
@@ -117,7 +117,7 @@ poke B 1 75 692 30 2000 175 61 14 152 ; Clauncher: Flail, Bubble Beam, Swords Da
 poke C 0 50 120 32 5000 129 61 107 360 ; Staryu: Swift, Bubble Beam, Minimize, Gyro Ball
 poke C 0 50 90 32 5000 43 128 420 534 ; Shellder: Leer, Clamp, Ice Shard, Razor Shell
 item 0 20 84 7000 all ; Water Stone
-item 1 20 299 6000 all ; Splash Plate
+item 1 20 253 6000 all ; Shell Bell
 item 2 30 227 5000 all ; Deep Sea Scale
 item 3 30 226 4000 all ; Deep Sea Tooth
 item 4 30 285 3000 all ; Damp Rock
@@ -154,7 +154,7 @@ poke C 0 50 212 37 5000 210 163 13 334 ; Scizor: Fury Cutter, Slash, Razor Wind,
 poke C 0 50 479 37 6000 104 351 466 164 ; Rotom: Double Team, Shock Wave, Ominous Wind, Substitute
 item 0 20 29 7000 all ; Max Revive
 item 1 20 23 6000 all ; Full Restore
-item 2 30 300 5000 all ; Zap Plate
+item 2 30 322 5000 all ; Electirizer
 item 3 30 546 4000 all ; Cell Battery
 item 4 30 233 3000 all ; Metal Coat
 item 5 40 242 2000 all ; Magnet
@@ -171,8 +171,8 @@ poke B 1 75 510 40 2000 468 372 163 269 ; Liepard: Hone Claws, Assurance, Slash,
 poke C 0 50 229 42 5000 251 424 185 373 ; Houndoom: Beat Up, Fire Fang, Feint Attack, Embargo
 poke C 0 50 94 42 7000 325 371 247 138 ; Gengar: Shadow Punch, Payback, Shadow Ball, Dream Eater
 item 0 20 41 8000 all ; Max Elixir
-item 1 20 312 7000 all ; Dread Plate
-item 2 30 310 6000 all ; Spooky Plate
+item 1 20 327 7000 all ; Razor Fang
+item 2 30 240 6000 all ; Black Glasses
 item 3 30 325 5000 all ; Reaper Cloth
 item 4 30 108 4000 all ; Dusk Stone
 item 5 40 228 3000 all ; Smoke Ball
@@ -190,7 +190,7 @@ poke C 0 50 215 48 6000 163 289 386 420 ; Sneasel: Slash, Snatch, Punishment, Ic
 poke C 0 50 615 48 7000 113 115 163 109 ; Cryogonal: Light Screen, Reflect, Slash, Confuse Ray
 item 0 20 326 8000 all ; Razor Claw
 item 1 20 40 7000 all ; Elixir
-item 2 30 302 6000 all ; Icicle Plate
+item 2 30 213 6000 all ; Bright Powder
 item 3 30 246 5000 all ; Never-Melt Ice
 item 4 30 649 4000 all ; Snowball
 item 5 40 282 3000 all ; Icy Rock
@@ -262,9 +262,9 @@ poke C 0 50 623 55 8000 101 174 484 89 ; Golurk: Night Shade, Curse, Heavy Slam,
 poke C 0 50 681 55 10000 457 475 533 588 ; Aegislash: Head Smash, Autotomize, Sacred Sword, King’s Shield
 item 0 20 1 10000 all ; Master Ball
 item 1 20 108 8000 all ; Dusk Stone
-item 2 30 313 6000 all ; Iron Plate
-item 3 30 305 5000 all ; Earth Plate
-item 4 30 309 4000 all ; Stone Plate
+item 2 30 321 6000 all ; Protector
+item 3 30 233 5000 all ; Metal Coat
+item 4 30 278 4000 all ; Iron Ball
 item 5 40 41 3000 all ; Max Elixir
 item 6 50 29 2000 all ; Max Revive
 item 7 50 238 1000 all ; Hard Stone
@@ -296,11 +296,11 @@ poke B 1 75 610 35 3000 163 206 337 349 ; Axew: Slash, False Swipe, Dragon Claw,
 poke B 1 75 443 20 3000 82 201 36 328 ; Gible: Dragon Rage, Sandstorm, Take Down, Sand Tomb
 poke C 0 50 704 35 8000 225 240 175 34 ; Goomy: Dragon Breath, Rain Dance, Flail, Body Slam
 poke C 0 50 633 45 10000 21 406 526 407 ; Deino: Slam, Dragon Pulse, Work Up, Dragon Rush
-item 0 20 311 10000 all ; Draco Plate
+item 0 20 235 10000 all ; Dragon Scale
 item 1 20 41 8000 all ; Max Elixir
 item 2 30 197 6000 all ; Haban Berry
 item 3 30 327 5000 all ; Razor Fang
-item 4 30 235 4000 all ; Dragon Scale
+item 4 30 295 4000 all ; Shed Shell
 item 5 40 250 3000 all ; Dragon Fang
 item 6 50 283 2000 all ; Smooth Rock
 item 7 50 39 1000 all ; Max Ether

@@ -164,6 +164,7 @@ void ui_connect_end(void)
 {
 	active = 0;
 	sound_transfer(0); // v0.55
+	sound_link(0);     // v0.59: the music glides back up (the link is closed by now)
 }
 
 int ui_connect_active(void)

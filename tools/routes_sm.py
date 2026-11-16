@@ -48,6 +48,7 @@ TRIALS = ["Trial 1 (Ilima)", "Grand Trial 1 (Hala)", "Trial 2 (Lana)", "Trial 3 
           "Grand Trial 2 (Olivia)", "Trial 5 (Sophocles)", "Trial 6 (Acerola)", "Grand Trial 3 (Nanu)",
           "Trial 7 (Vast Poni Canyon)", "Grand Trial 4 (Hapu)"]
 ORIGINS = [  # sheet text (start) -> games
+    ("Pokemon X or Y", "X,Y"),  # the Imposter Ditto (sheet updated 2026-11-15 to what the game has)
     ("Walker's own game", "SN,MN,US,UM"), ("Ultra Sun or Ultra Moon", "US,UM"), ("Sun or Ultra Sun", "SN,US"),
     ("Moon or Ultra Moon", "MN,UM"), ("Ultra Sun", "US"), ("Ultra Moon", "UM"),
 ]

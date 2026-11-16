@@ -1,0 +1,9 @@
+# Gen 5 forms shaped unlike their base Pokemon (walker_gen5_two.py): face point "key x y"
+# in the mirrored frame 1 trimmed to the Pokemon (grid: art_src/gen5two/form_heads_grid.png).
+# 2026-11-15. Zen Darmanitan (555Z, 41x39) fits whole and needs none.
+641T 44 22    # Tornadus Therian: head + chest (tail cloud cut)
+642T 60 24    # Thundurus Therian: head and body
+645T 48 44    # Landorus Therian: head in the middle (the tail loop above is cut)
+646B 72 32    # Black Kyurem: head and the shoulder
+646W 72 28    # White Kyurem: head and the shoulder
+647R 36 26    # Keldeo Resolute: head and mane

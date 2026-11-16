@@ -33,6 +33,10 @@ extern "C" void ui_legacy_present(void); // include/ui.h (v0.32: screen output o
 #include <cstring>
 #include <dirent.h>
 #include <ctime>
+#include <map>
+
+#include "spi.hpp" // lib/pksm-spi: PKSM's DS game card save access (v0.61)
+#include "sav/Sav4.hpp"
 #include <memory>
 #include <span>
 #include <string>
@@ -62,6 +66,242 @@ namespace
         std::vector<u8> gbaFile;       // the container as it is on the card now
         walkerbox::gbavc::Pick gbaPick; // its current slot
     };
+
+    // --- DS saves (v0.61: Diamond / Pearl / Platinum; user: "ensure that saves from twilight menu can be read and
+    // show up different from cartridges") ------------------------------------------------------------------------
+    // A DS save has no 3DS title ID, so it gets a made-up one: high word 0x0004800D, bits 24-31 the game (DsGame),
+    // low 24 bits 0 for the game card or a hash of the SD file's path. The rest of the app (watts, walk records,
+    // course choice) uses it like any title ID; readUserSave / writeUserSave send it to the card or the file.
+    enum DsGame
+    {
+        DS_NONE = 0, DS_DIAMOND, DS_PEARL, DS_PLATINUM, DS_HEARTGOLD, DS_SOULSILVER
+    };
+    constexpr u32 DS_SAVE_SIZE = 0x80000; // every Gen 4 Pokemon game
+
+    struct DsSource
+    {
+        int kind = 0;          // 1 game card, 2 SD .sav file
+        CardType cardType = NO_CHIP;
+        std::string file;      // sdmc:/... for kind 2
+        u32 fileLength = 0;    // the whole file (emulators / dumpers may append bytes; kept as they are)
+        std::string code;      // v0.63: the card's game code (CPUE, ADAE...) - checked again before every read / write
+        u32 sum = 0;           // v0.63: FNV-1a of the card save as last read or written - checked before a write
+    };
+    std::map<u64, DsSource> g_ds;
+
+    // v0.63 (console test of v0.62: removing the DS card while PocketPKMN was suspended froze the console; the log
+    // never reached the first exit line): pxi:dev is no longer held for the whole run (v0.62 opened it at start) -
+    // only around each card access, closed right after, so nothing of the card is held while the app is suspended.
+    struct PxiDevGuard
+    {
+        static int depth;
+        Result r = 0;
+        PxiDevGuard()
+        {
+            if (depth++ == 0)
+            {
+                r = pxiDevInit();
+                if (R_FAILED(r))
+                    dbg_printf("storage: pxi:dev %08lx", (unsigned long)r);
+            }
+        }
+        ~PxiDevGuard()
+        {
+            if (--depth == 0 && R_SUCCEEDED(r))
+                pxiDevExit();
+        }
+    };
+    int PxiDevGuard::depth = 0;
+
+    u32 fnv32(const u8* d, u32 n)
+    {
+        u32 h = 2166136261u;
+        for (u32 i = 0; i < n; i++)
+            h = (h ^ d[i]) * 16777619u;
+        return h;
+    }
+
+    // v0.63: is the DS card in the slot (still) the one with this game code? (cards can be swapped while the app
+    // is suspended at the HOME menu)
+    bool dsCardIs(const std::string& code)
+    {
+        bool inserted = false;
+        FS_CardType type;
+        if (R_FAILED(FSUSER_CardSlotIsInserted(&inserted)) || !inserted || R_FAILED(FSUSER_GetCardType(&type)) ||
+            type != CARD_TWL)
+            return false;
+        std::vector<u8> hdr(0x3B4);
+        if (R_FAILED(FSUSER_GetLegacyRomHeader(MEDIATYPE_GAME_CARD, 0ULL, hdr.data())))
+            return false;
+        return code.size() == 4 && memcmp(hdr.data() + 12, code.data(), 4) == 0;
+    }
+
+    bool isDsTid(u64 tid) { return (tid >> 32) == 0x0004800DULL; }
+    u64 dsTid(int game, u32 hash24) { return 0x0004800D00000000ULL | ((u64)(game & 0xFF) << 24) | (hash24 & 0xFFFFFF); }
+
+    int dsGameFromCode(const char* code) // the cartridge's game code (ROM header +0x0C), first 3 letters
+    {
+        if (!strncmp(code, "ADA", 3)) return DS_DIAMOND;
+        if (!strncmp(code, "APA", 3)) return DS_PEARL;
+        if (!strncmp(code, "CPU", 3)) return DS_PLATINUM;
+        if (!strncmp(code, "IPK", 3)) return DS_HEARTGOLD;
+        if (!strncmp(code, "IPG", 3)) return DS_SOULSILVER;
+        return DS_NONE;
+    }
+
+    const char* dsGameName(int game)
+    {
+        switch (game)
+        {
+            case DS_DIAMOND: return "Pok\xC3\xA9mon Diamond";
+            case DS_PEARL: return "Pok\xC3\xA9mon Pearl";
+            case DS_PLATINUM: return "Pok\xC3\xA9mon Platinum";
+            case DS_HEARTGOLD: return "Pok\xC3\xA9mon HeartGold";
+            case DS_SOULSILVER: return "Pok\xC3\xA9mon SoulSilver";
+        }
+        return "DS game";
+    }
+
+    bool dsCardRead(CardType type, u8* out)
+    {
+        PxiDevGuard pxi;
+        if (R_FAILED(pxi.r))
+            return false;
+        for (u32 i = 0; i < DS_SAVE_SIZE / 0x10000; i++) // as PKSM: 64 KiB at a time
+            if (R_FAILED(SPIReadSaveData(type, 0x10000 * i, out + 0x10000 * i, 0x10000)))
+                return false;
+        return true;
+    }
+
+    bool dsFileRead(const std::string& path, std::vector<u8>& whole)
+    {
+        FILE* fp = fopen(path.c_str(), "rb");
+        if (!fp)
+            return false;
+        fseek(fp, 0, SEEK_END);
+        long n = ftell(fp);
+        fseek(fp, 0, SEEK_SET);
+        bool ok = n >= (long)DS_SAVE_SIZE && n <= (long)DS_SAVE_SIZE + 0x10000;
+        if (ok)
+        {
+            whole.resize((size_t)n);
+            ok = fread(whole.data(), 1, whole.size(), fp) == whole.size();
+        }
+        fclose(fp);
+        return ok;
+    }
+
+    // Read a DS save (512 KiB) for a made-up title ID.
+    bool dsRead(u64 tid, std::shared_ptr<u8[]>& out, u32& length)
+    {
+        auto it = g_ds.find(tid);
+        if (it == g_ds.end())
+            return false;
+        out = std::shared_ptr<u8[]>(new u8[DS_SAVE_SIZE]);
+        if (it->second.kind == 1)
+        {
+            if (!dsCardIs(it->second.code))
+            {
+                dbg_printf("storage: DS card %s is no longer in the slot", it->second.code.c_str());
+                return false;
+            }
+            if (!dsCardRead(it->second.cardType, out.get()))
+                return false;
+            it->second.sum = fnv32(out.get(), DS_SAVE_SIZE);
+        }
+        else
+        {
+            std::vector<u8> whole;
+            if (!dsFileRead(it->second.file, whole))
+                return false;
+            memcpy(out.get(), whole.data(), DS_SAVE_SIZE);
+        }
+        length = DS_SAVE_SIZE;
+        return true;
+    }
+
+    // Write a DS save: the card page by page (as PKSM), or the SD file through a temporary file (the bytes after
+    // the save, if any, kept); then read back and compare.
+    bool dsWrite(u64 tid, const u8* data, u32 length)
+    {
+        auto it = g_ds.find(tid);
+        if (it == g_ds.end() || length != DS_SAVE_SIZE)
+            return false;
+        const DsSource& s = it->second;
+        if (s.kind == 1)
+        {
+            // v0.63: the same card as read, and its save as read (not swapped / changed while suspended)
+            if (!dsCardIs(s.code))
+            {
+                dbg_printf("storage: DS card write REFUSED: %s is no longer in the slot", s.code.c_str());
+                return false;
+            }
+            std::shared_ptr<u8[]> now(new u8[DS_SAVE_SIZE]);
+            if (!dsCardRead(s.cardType, now.get()) || fnv32(now.get(), DS_SAVE_SIZE) != s.sum)
+            {
+                dbg_printf("storage: DS card write REFUSED: the card's save is not the one that was read");
+                return false;
+            }
+            PxiDevGuard pxi;
+            if (R_FAILED(pxi.r))
+                return false;
+            u32 page = SPIGetPageSize(s.cardType);
+            if (!page)
+            {
+                dbg_printf("storage: DS card write: no page size");
+                return false;
+            }
+            if (s.cardType == FLASH_8MB)
+                SPIUnlock(s.cardType);
+            // v0.66 (review 2026-11, finding 3; user: "Yes, DS card write"): only the pages that differ from what is
+            // on the card now (just read and checked above) are written - a box move changes 3 of the 2,048 pages.
+            // Before, every page was written again (each page write erases the page first), so a power cut or a
+            // pulled card could damage any block, also the other half's and the trainer data that did not change.
+            // The save that ends up on the card is the same as before; the read-back below still compares all of it.
+            u32 written = 0;
+            for (u32 i = 0; i < length / page; i++)
+            {
+                if (memcmp(now.get() + page * i, data + page * i, page) == 0)
+                    continue;
+                Result r = SPIWriteSaveData(s.cardType, page * i, (void*)(data + page * i), page);
+                if (R_FAILED(r))
+                {
+                    dbg_printf("storage: DS card write: page %lu: %08lx (%lu page(s) written before it)",
+                        (unsigned long)i, (unsigned long)r, (unsigned long)written);
+                    return false;
+                }
+                written++;
+            }
+            dbg_printf("storage: DS card write: %lu of %lu page(s) differed and were written", (unsigned long)written,
+                (unsigned long)(length / page));
+        }
+        else
+        {
+            std::vector<u8> whole;
+            if (!dsFileRead(s.file, whole))
+                return false;
+            memcpy(whole.data(), data, length);
+            std::string tmp = s.file + ".tmp";
+            FILE* fp = fopen(tmp.c_str(), "wb");
+            bool ok = fp && fwrite(whole.data(), 1, whole.size(), fp) == whole.size();
+            if (fp)
+                ok = (fclose(fp) == 0) && ok;
+            if (!ok || remove(s.file.c_str()) != 0 || rename(tmp.c_str(), s.file.c_str()) != 0)
+            {
+                dbg_printf("storage: DS file write failed: %s", s.file.c_str());
+                return false;
+            }
+        }
+        std::shared_ptr<u8[]> back;
+        u32 backLen = 0;
+        if (!dsRead(tid, back, backLen) || memcmp(back.get(), data, length) != 0)
+        {
+            dbg_printf("storage: DS write: read-back did NOT match");
+            return false;
+        }
+        dbg_printf("storage: DS write ok (%s)", s.kind == 1 ? "game card" : s.file.c_str());
+        return true;
+    }
 
     PrintConsole *g_top, *g_bottom;
     bool g_dataReady; // romfs mounted and PKSM-Core's English strings loaded
@@ -122,6 +362,11 @@ namespace
     bool readUserSave(u64 tid, FS_MediaType media, const char* path, std::shared_ptr<u8[]>& out, u32& length,
         Result& why)
     {
+        if (isDsTid(tid)) // v0.61: DS game card / SD file
+        {
+            why = 0;
+            return dsRead(tid, out, length);
+        }
         u32 lowPath[3] = {(u32)media, (u32)tid, (u32)(tid >> 32)};
         FS_Path archPath = {PATH_BINARY, sizeof(lowPath), lowPath};
         FS_Archive arch;
@@ -316,6 +561,163 @@ namespace
         f.label = base + " - " + sav.otName();
     }
 
+    // v0.61: one DS save (card or file) as a FoundSave, if PKSM-Core reads it as a Gen 4 save
+    bool addDsSave(std::vector<FoundSave>& found, int game, u64 tid, const DsSource& src, std::shared_ptr<u8[]> data,
+        const std::string& where)
+    {
+        std::unique_ptr<pksm::Sav> sav;
+        try
+        {
+            sav = pksm::Sav::getSave(data, DS_SAVE_SIZE);
+        }
+        catch (...)
+        {
+            sav = nullptr;
+        }
+        if (!sav || sav->generation() != pksm::Generation::FOUR)
+        {
+            dbg_printf("storage: %s: not a Gen 4 Pokemon save", where.c_str());
+            return false;
+        }
+        // the save says Diamond for Diamond and Pearl and HeartGold for HeartGold and SoulSilver: the card's game
+        // code (or the file name) decides
+        if (game == DS_NONE)
+            game = sav->version() == pksm::GameVersion::Pt ? DS_PLATINUM
+                 : sav->version() == pksm::GameVersion::HG ? DS_HEARTGOLD : DS_DIAMOND;
+        FoundSave f;
+        f.titleId = tid | ((u64)(game & 0xFF) << 24);
+        f.media   = src.kind == 1 ? MEDIATYPE_GAME_CARD : MEDIATYPE_SD;
+        f.path    = "/ds.sav";
+        f.length  = DS_SAVE_SIZE;
+        f.data    = data;
+        f.original.assign(data.get(), data.get() + DS_SAVE_SIZE);
+        f.name    = dsGameName(game);
+        f.label   = f.name + " - " + sav->otName();
+        f.sav     = std::move(sav);
+        g_ds[f.titleId] = src;
+        dbg_printf("storage: %016llx: %s, %s (%s)", (unsigned long long)f.titleId, f.label.c_str(),
+            src.kind == 1 ? "DS game card" : "SD card", where.c_str());
+        found.push_back(std::move(f));
+        return true;
+    }
+
+    u32 fnv1a24(const std::string& s)
+    {
+        u32 h = 2166136261u;
+        for (unsigned char c : s)
+            h = (h ^ c) * 16777619u;
+        h &= 0xFFFFFF;
+        return h ? h : 1; // 0 is the game card
+    }
+
+    std::string lower(std::string s)
+    {
+        for (char& c : s)
+            c = (char)tolower((unsigned char)c);
+        return s;
+    }
+
+    // Folders never searched for DS saves: the system's, and backups (PKSM, Checkpoint, TWLSaveTool, our own).
+    bool skipDir(const std::string& path)
+    {
+        static const char* const skip[] = {"sdmc:/nintendo 3ds", "sdmc:/3ds/checkpoint", "sdmc:/3ds/pksm",
+            "sdmc:/3ds/pocketpkmn", "sdmc:/twlsavetool", "sdmc:/luma", "sdmc:/gm9", "sdmc:/dcim"};
+        std::string l = lower(path);
+        for (const char* s : skip)
+            if (l == s)
+                return true;
+        return false;
+    }
+
+    void scanSdForDsSaves(const std::string& dir, int depth, std::vector<std::string>& out)
+    {
+        if (depth > 5 || skipDir(dir) || out.size() >= 32)
+            return;
+        DIR* d = opendir(dir.c_str());
+        if (!d)
+            return;
+        std::vector<std::string> sub;
+        while (struct dirent* e = readdir(d))
+        {
+            std::string name = e->d_name;
+            if (name == "." || name == "..")
+                continue;
+            std::string path = dir + (dir.back() == '/' ? "" : "/") + name;
+            if (e->d_type == DT_DIR)
+                sub.push_back(path);
+            else if (name.size() > 4 && lower(name.substr(name.size() - 4)) == ".sav")
+            {
+                struct stat st;
+                if (stat(path.c_str(), &st) == 0 && st.st_size >= (off_t)DS_SAVE_SIZE &&
+                    st.st_size <= (off_t)DS_SAVE_SIZE + 0x10000)
+                    out.push_back(path);
+            }
+        }
+        closedir(d);
+        for (const std::string& s : sub)
+            scanSdForDsSaves(s, depth + 1, out);
+    }
+
+    // v0.61: Diamond / Pearl / Platinum (and HeartGold / SoulSilver, read only until they have courses) saves: a DS
+    // game card in the slot (read over SPI as PKSM does), and 512 KiB .sav files anywhere on the SD card - TWiLight
+    // Menu++ keeps them next to the game or in a "saves" folder, PocketPKMN does not need to know which: PKSM-Core
+    // says which game a file is. Never during a walker link (it runs with the games scan).
+    void scanDsSaves(std::vector<FoundSave>& found)
+    {
+        g_ds.clear();
+        bool inserted = false;
+        FS_CardType type;
+        if (R_SUCCEEDED(FSUSER_CardSlotIsInserted(&inserted)) && inserted && R_SUCCEEDED(FSUSER_GetCardType(&type)) &&
+            type == CARD_TWL)
+        {
+            std::vector<u8> hdr(0x3B4);
+            if (R_SUCCEEDED(FSUSER_GetLegacyRomHeader(MEDIATYPE_GAME_CARD, 0ULL, hdr.data())))
+            {
+                char code[5] = {0};
+                memcpy(code, hdr.data() + 12, 4);
+                int game = dsGameFromCode(code);
+                PxiDevGuard pxi; // v0.63: only while the card is read
+                CardType ct = NO_CHIP;
+                if (game == DS_NONE)
+                    dbg_printf("storage: DS game card %s: not a Gen 4 Pokemon game", code);
+                else if (R_FAILED(SPIGetCardType(&ct, hdr[12] == 'I')) || SPIGetCapacity(ct) < DS_SAVE_SIZE)
+                    dbg_printf("storage: DS game card %s: save chip not usable (type %d)", code, (int)ct);
+                else
+                {
+                    std::shared_ptr<u8[]> data(new u8[DS_SAVE_SIZE]);
+                    DsSource src;
+                    src.kind     = 1;
+                    src.cardType = ct;
+                    src.code     = code;
+                    if (dsCardRead(ct, data.get()) && ((src.sum = fnv32(data.get(), DS_SAVE_SIZE)), true))
+                        addDsSave(found, game, dsTid(0, 0), src, data, std::string("game card ") + code);
+                    else
+                        dbg_printf("storage: DS game card %s: read failed", code);
+                }
+            }
+        }
+        std::vector<std::string> files;
+        scanSdForDsSaves("sdmc:/", 0, files);
+        for (const std::string& path : files)
+        {
+            std::vector<u8> whole;
+            if (!dsFileRead(path, whole))
+                continue;
+            std::shared_ptr<u8[]> data(new u8[DS_SAVE_SIZE]);
+            memcpy(data.get(), whole.data(), DS_SAVE_SIZE);
+            DsSource src;
+            src.kind       = 2;
+            src.file       = path;
+            src.fileLength = (u32)whole.size();
+            // Diamond and Pearl share one save format: the file name tells Pearl ("pearl", "POKEMON P.sav")
+            std::string l = lower(path.substr(path.rfind('/') + 1));
+            int game      = (l.find("pearl") != std::string::npos || l == "pokemon p.sav") ? DS_PEARL
+                          : (l.find("soulsilver") != std::string::npos || l == "pokemon ss.sav") ? DS_SOULSILVER
+                                                                                                  : DS_NONE;
+            addDsSave(found, game, dsTid(0, fnv1a24(path)), src, data, path);
+        }
+    }
+
     // Look through every installed SD title for a Gen 1/2 save PKSM-Core knows.
     std::vector<FoundSave> scanVcSaves()
     {
@@ -434,6 +836,7 @@ namespace
                 boxes ? f.sav->maxSlot() / boxes : 0);
             found.push_back(std::move(f));
         }
+        scanDsSaves(found); // v0.61
         return found;
     }
 
@@ -719,6 +1122,8 @@ namespace
     // drop the title's secure value as PKSM does, so the game accepts the save.
     bool writeUserSave(u64 tid, FS_MediaType media, const char* path, const u8* data, u32 length)
     {
+        if (isDsTid(tid)) // v0.61: DS game card / SD file
+            return dsWrite(tid, data, length);
         u32 lowPath[3]   = {(u32)media, (u32)tid, (u32)(tid >> 32)};
         FS_Path archPath = {PATH_BINARY, sizeof(lowPath), lowPath};
         FS_Archive arch;
@@ -974,6 +1379,23 @@ namespace
             }
             dbg_printf("storage: %s", note.c_str());
             return writeUserSave(f.titleId, f.media, f.path, sav.rawData().get(), f.length);
+        }
+        if (sav.generation() == pksm::Generation::FOUR) // v0.62 (user's Diamond + Platinum pairs: tests/test_gen4.cpp)
+        {
+            if (before.size() != f.length ||
+                !walkerbox::gameMatchFinish4(sav, before.data(), f.length, editedBox, note))
+            {
+                dbg_printf("storage: Gen 4 save REFUSED: %s", note.c_str());
+                if (refused)
+                    *refused = true;
+                return false;
+            }
+            dbg_printf("storage: %s", note.c_str());
+            // v0.67: the new boxes copy is in the other half; the save object still looks at the old one - take
+            // what is on the card now (as after a Gen 3 write)
+            bool ok = writeUserSave(f.titleId, f.media, f.path, sav.rawData().get(), f.length);
+            reloadSave(f);
+            return ok;
         }
         u32 restored = walkerbox::gameMatchFinish(sav, f.length, editedBox, note);
         dbg_printf("storage: %s (%lu byte(s) put back)", note.c_str(), (unsigned long)restored);
@@ -2256,6 +2678,15 @@ namespace
         }
         if (gen == 6 && (f.sav->version() == pksm::GameVersion::X || f.sav->version() == pksm::GameVersion::Y))
             return f.length > 0x195B3 && (d[0x195B3] & 0x80) != 0;
+        if (gen == 4) // v0.61: PKHeX SAV4.SecondsToFame - the play time of the first Hall of Fame entry, 0 = never; at
+                      // +0x3C of the current general block (found in the user's Platinum save, both copies)
+        {
+            const auto& s4 = static_cast<const pksm::Sav4&>(*f.sav);
+            int gbo        = s4.getGBO();
+            if (gbo < 0 || (u32)gbo + 0x40 > f.length)
+                return 0;
+            return (d[gbo + 0x3C] | d[gbo + 0x3D] | d[gbo + 0x3E] | d[gbo + 0x3F]) != 0;
+        }
         if (gen == 7) // the first Hall of Fame team's first species (PKHeX: HallOfFame7.First1); 0 = never entered
         {
             bool usum = f.sav->version() == pksm::GameVersion::US || f.sav->version() == pksm::GameVersion::UM;
@@ -2352,6 +2783,8 @@ extern "C" int storage_games_scan(storage_game_info* out, int max, char* why, in
         g.tid        = f.sav->displayTID();
         g.gen        = genOf(*f.sav);
         g.kind       = f.gba ? 2 : f.media == MEDIATYPE_GAME_CARD ? 1 : 0;
+        if (isDsTid(f.titleId) && g_ds.count(f.titleId) && g_ds[f.titleId].kind == 2)
+            g.kind = 3; // v0.61: TWiLight Menu save on the SD card
         g.has_routes = routes_file_for(f.titleId, g.gen, nullptr) != nullptr; // v0.41: a route file for this game
         g.boxes      = f.sav->maxBoxes();
         g.per_box    = g.boxes ? f.sav->maxSlot() / g.boxes : 0;
@@ -2616,42 +3049,84 @@ namespace
     }
 }
 
-extern "C" int storage_deliver_catches(int from_box, int from_slot, const storage_catch* catches, int n, char* msg,
-    int msg_size)
+// v0.70 (review finding 4): a copy of a bank entry, for the pending-walk file
+extern "C" int storage_walk_entry(int box, int slot, unsigned char out[STORAGE_ENTRY_SIZE])
+{
+    static_assert(STORAGE_ENTRY_SIZE == BANK_ENTRY, "entry size");
+    memset(out, 0, STORAGE_ENTRY_SIZE);
+    if (!bankInRange(box, slot) || !bankLoad() || !bankGen(box, slot))
+        return 0;
+    memcpy(out, bankEntry(box, slot), BANK_ENTRY);
+    return 1;
+}
+
+namespace
+{
+    // the game (title id) of a bank entry's origin record; false if it has none
+    bool entryOriginTid(const u8* e, unsigned long long& tid)
+    {
+        const u8* o = e + BANK_ORIGIN;
+        if (!e[0] || memcmp(o, "WBO1", 4) != 0)
+            return false;
+        tid = 0;
+        for (int i = 0; i < 8; i++)
+            tid |= (unsigned long long)o[4 + i] << (8 * i);
+        return true;
+    }
+
+    std::unique_ptr<pksm::PKX> entryPkm(const u8* e)
+    {
+        u16 len = (u16)(e[2] | (e[3] << 8));
+        if (!e[0] || len == 0 || len > BANK_DATA)
+            return nullptr;
+        return pksm::PKX::getPKM(genFromNumber(e[0]), const_cast<u8*>(e) + 8, len); // copies the bytes (not direct)
+    }
+
+    // the save of the entry's game: the copy it came from (game card / SD) if recorded and here, else any copy
+    FoundSave* entrySave(std::vector<FoundSave>& saves, const u8* e, unsigned long long tid)
+    {
+        int recMedia  = e[BANK_ORIGIN + 0x0F] - 1;
+        FoundSave* fs = nullptr;
+        for (FoundSave& f : saves)
+            if (f.titleId == tid && (recMedia < 0 || (int)f.media == recMedia))
+                fs = &f;
+        if (!fs)
+            for (FoundSave& f : saves)
+                if (f.titleId == tid)
+                    fs = &f;
+        return fs;
+    }
+}
+
+extern "C" int storage_deliver_catches(const unsigned char* entry, const storage_catch* catches, int n,
+    const storage_step_hooks* hooks, char* msg, int msg_size)
 {
     std::string out;
     setWhy(msg, msg_size, "");
     if (n <= 0)
         return 0;
-    if (!bankInRange(from_box, from_slot) || !prepareData() || !bankLoad() || !bankGen(from_box, from_slot))
+    if (!entry || !prepareData() || !bankLoad())
     {
-        setWhy(msg, msg_size, "The caught Pokemon could not be made (PocketPKMN box).");
+        setWhy(msg, msg_size, "The caught Pokemon could not be made now (Pokemon data or PocketPKMN box).");
         return -1;
     }
-    char ot[24];
     unsigned long long tid = 0;
-    if (!storage_walk_origin(from_box, from_slot, ot, sizeof(ot), nullptr, nullptr, &tid))
+    if (!entryOriginTid(entry, tid))
     {
         setWhy(msg, msg_size, "The caught Pokemon could not be made: the walked\nPokemon has no record of its game.");
-        return -1;
+        return -2;
     }
-    int gen    = bankGen(from_box, from_slot);
-    auto shell = bankPkm(from_box, from_slot);
-    std::vector<u8> origin(bankEntry(from_box, from_slot) + BANK_ORIGIN, bankEntry(from_box, from_slot) + BANK_ENTRY);
+    int gen    = entry[0];
+    auto shell = entryPkm(entry);
+    std::vector<u8> origin(entry + BANK_ORIGIN, entry + BANK_ENTRY);
     GbaSessionGuard gba;
     std::vector<FoundSave> saves = scanVcSaves();
-    FoundSave* fs = nullptr;
-    int recMedia  = origin[0x0F] - 1;
-    for (FoundSave& f : saves)
-        if (f.titleId == tid && (recMedia < 0 || (int)f.media == recMedia))
-            fs = &f;
-    if (!fs)
-        for (FoundSave& f : saves)
-            if (f.titleId == tid)
-                fs = &f;
+    FoundSave* fs = entrySave(saves, entry, tid);
     if (!fs)
     {
-        setWhy(msg, msg_size, "The caught Pokemon wait: their game is not here.");
+        // v0.70 (review finding 4): nothing is made; the pending-walk file keeps them for the next time
+        setWhy(msg, msg_size, "The caught Pokemon wait: their game is not in\nthis 3DS now. They go into it the next "
+                              "time it is\n(PocketPKMN tries at start and at End walk).\n");
         return -1;
     }
     FoundSave& f           = *fs;
@@ -2669,6 +3144,14 @@ extern "C" int storage_deliver_catches(int from_box, int from_slot, const storag
         tplFile = "romfs:/routes/catch_gsc.bin";
         vi      = ver == pksm::GameVersion::C ? 2 : ver == pksm::GameVersion::SV ? 1 : 0;
     }
+    else if (gen == 4 && isDsTid(tid)) // v0.61: Diamond / Pearl / Platinum (templates D P Pt; the game is in the ID)
+    {
+        int game = (int)((tid >> 24) & 0xFF);
+        tplFile  = "romfs:/routes/catch_dppt.bin";
+        vi       = game == DS_DIAMOND ? 0 : game == DS_PEARL ? 1 : game == DS_PLATINUM ? 2 : -1;
+        if (vi < 0)
+            tplFile = nullptr;
+    }
     else if (gen == 7) // v0.55: Sun / Moon / Ultra Sun / Ultra Moon (tools/routes_sm.py, templates SN MN US UM)
     {
         tplFile = "romfs:/routes/catch_sm.bin";
@@ -2680,7 +3163,7 @@ extern "C" int storage_deliver_catches(int from_box, int from_slot, const storag
     if (!tplFile || !routesFile)
     {
         setWhy(msg, msg_size, "No catches can be made for this game yet.");
-        return -1;
+        return -2;
     }
     walkerbox::CatchTrainer tr;
     tr.name     = f.sav->otName();
@@ -2701,6 +3184,24 @@ extern "C" int storage_deliver_catches(int from_box, int from_slot, const storag
     bool canMove = readyToMove(f, ready);
     for (int i = 0; i < n; i++)
     {
+        if (hooks && hooks->skip && hooks->skip[i])
+            continue; // v0.70: done before (pending-walk file)
+        // v0.70 (review finding 4): marked "started" in the pending-walk file before anything is made; a stop after
+        // this point never makes it a second time
+        if (hooks && hooks->begin && !hooks->begin(hooks->ctx, i))
+            break;
+        int later = 0;
+        struct EndStep
+        {
+            const storage_step_hooks* h;
+            int i;
+            int& later;
+            ~EndStep()
+            {
+                if (h && h->end)
+                    h->end(h->ctx, i, later);
+            }
+        } endStep{hooks, i, later};
         const storage_catch& c = catches[i];
         int course = -1, poke = -1;
         std::vector<u8> tdata;
@@ -2715,7 +3216,16 @@ extern "C" int storage_deliver_catches(int from_box, int from_slot, const storag
         std::unique_ptr<pksm::PKX> pk;
         std::string why;
         u32 seed = (u32)now ^ (u32)(c.species * 2654435761u) ^ (u32)(i * 40503u) ^ (u32)svcGetSystemTick();
-        if (!walkerbox::buildCatch(t, tr, shell.get(), c.shiny != 0, c.female != 0, seed, lt ? lt->tm_mday : 1,
+        // v0.65 (user: "this app creating a shiny is fine ... They can generate shiny" / "I'd like that"): a catch is
+        // shiny at the games' own odds - 1 in 8,192 in Gen 2 and Gen 4, 1 in 4,096 in Gen 6 and Gen 7 - or when the
+        // walker itself says so. (A Gen 4 template of a wild Pokemon keeps its PID, so such a one would never turn
+        // shiny; since v0.66 every Gen 4 template is a hatched egg - "pkhex-check egg4" remade the D / P Froslass.)
+        u32 roll   = (seed ^ (seed >> 15)) * 2246822519u;
+        roll      ^= roll >> 13;
+        bool shiny = c.shiny != 0 || roll % (gen >= 6 ? 4096u : 8192u) == 0;
+        if (shiny)
+            dbg_printf("catch %s: SHINY (%s)", name.c_str(), c.shiny ? "the walker's flag" : "the game's odds");
+        if (!walkerbox::buildCatch(t, tr, shell.get(), shiny, c.female != 0, seed, lt ? lt->tm_mday : 1,
                 lt ? lt->tm_mon + 1 : 1, lt ? lt->tm_year + 1900 : 2026, pk, why))
         {
             out += name + ": could not be made (" + why + ").\n";
@@ -2732,7 +3242,8 @@ extern "C" int storage_deliver_catches(int from_box, int from_slot, const storag
                 }
         if (bb < 0)
         {
-            out += name + ": the PocketPKMN boxes are full.\n";
+            out += name + ": the PocketPKMN boxes are full - it waits\nfor a free slot.\n";
+            later = 1; // v0.70: nothing made; tried again next time
             continue;
         }
         Raw raw = rawOf(pk.get());
@@ -2752,7 +3263,8 @@ extern "C" int storage_deliver_catches(int from_box, int from_slot, const storag
         if (canMove && withdrawOne(f, bb, bs, 0, true, m, &gb, &gs))
         {
             delivered++;
-            out += name + " is now in " + f.name + " (box " + std::to_string(gb + 1) + ").\n";
+            out += std::string(pk->shiny() ? "A shiny " : "") + name + " is now in " + f.name + " (box " +
+                   std::to_string(gb + 1) + ").\n";
         }
         else
             out += name + " waits in PocketPKMN: " + (canMove ? m : ready) + "\n";
@@ -2765,48 +3277,65 @@ extern "C" int storage_deliver_catches(int from_box, int from_slot, const storag
 // v0.53 (user: "items sent over should go to pc, not item bag. Unless its a generation without an item pc"): the
 // walk's items into the walked Pokemon's game - Gen 2: the PC item storage, X/Y (no item PC): the bag. One item at a
 // time: added in memory, checked to change only that item list (gameMatchItems), written, and read back on failure.
-extern "C" int storage_deliver_items(int from_box, int from_slot, const storage_found_item* items, int n,
-    char* where, int where_size, char* msg, int msg_size)
+extern "C" int storage_deliver_items(const unsigned char* entry, const storage_found_item* items, int n,
+    const storage_step_hooks* hooks, char* where, int where_size, char* msg, int msg_size)
 {
     setWhy(msg, msg_size, "");
     setWhy(where, where_size, "");
     if (n <= 0)
         return 0;
-    char ot[24];
     unsigned long long tid = 0;
-    if (!bankInRange(from_box, from_slot) || !prepareData() || !bankLoad() || !bankGen(from_box, from_slot) ||
-        !storage_walk_origin(from_box, from_slot, ot, sizeof(ot), nullptr, nullptr, &tid))
+    if (!entry || !prepareData() || !bankLoad())
     {
-        setWhy(msg, msg_size, "The items could not be sent (no record of the game).");
+        setWhy(msg, msg_size, "The items could not be sent now (Pokemon data or PocketPKMN box).");
         return -1;
     }
-    int recMedia = bankEntry(from_box, from_slot)[BANK_ORIGIN + 0x0F] - 1;
+    if (!entryOriginTid(entry, tid))
+    {
+        setWhy(msg, msg_size, "The items could not be sent (no record of the game).");
+        return -2;
+    }
     GbaSessionGuard gba;
     std::vector<FoundSave> saves = scanVcSaves();
-    FoundSave* fs = nullptr;
-    for (FoundSave& f : saves)
-        if (f.titleId == tid && (recMedia < 0 || (int)f.media == recMedia))
-            fs = &f;
-    if (!fs)
-        for (FoundSave& f : saves)
-            if (f.titleId == tid)
-                fs = &f;
-    if (!fs || fs->gba)
+    FoundSave* fs = entrySave(saves, entry, tid);
+    if (fs && fs->gba)
     {
-        setWhy(msg, msg_size, fs ? "Items cannot be sent to this game yet." : "The items wait: their game is not here.");
+        setWhy(msg, msg_size, "Items cannot be sent to this game yet.");
+        return -2;
+    }
+    if (!fs)
+    {
+        // v0.70 (review finding 4): kept in the pending-walk file for the next time
+        setWhy(msg, msg_size, "The items wait: their game is not in this 3DS\nnow. They go into it the next time it is.\n");
         return -1;
     }
     FoundSave& f = *fs;
     std::string ready;
     if (!readyToMove(f, ready))
     {
-        setWhy(msg, msg_size, "The items could not be sent: " + ready);
+        setWhy(msg, msg_size, "The items could not be sent now: " + ready);
         return -1;
     }
     std::string out, place;
     int sent = 0;
     for (int i = 0; i < n; i++)
     {
+        if (hooks && hooks->skip && hooks->skip[i])
+            continue; // v0.70: done before (pending-walk file)
+        // v0.70 (review finding 4): marked "started" first; a stop after this never sends it a second time. An item
+        // that is refused or whose write fails is finished (as before) - never tried twice.
+        if (hooks && hooks->begin && !hooks->begin(hooks->ctx, i))
+            break;
+        struct EndStep
+        {
+            const storage_step_hooks* h;
+            int i;
+            ~EndStep()
+            {
+                if (h && h->end)
+                    h->end(h->ctx, i, 0);
+            }
+        } endStep{hooks, i};
         u8* d = f.sav->rawData().get();
         std::vector<u8> before(d, d + f.length);
         std::string w, note;
@@ -2835,6 +3364,8 @@ extern "C" int storage_deliver_items(int from_box, int from_slot, const storage_
         }
         dbg_printf("items: %d (%s) -> %s of %s (%s)", items[i].id, items[i].gen2id ? "Gen 2 id" : "national",
             w.c_str(), f.label.c_str(), note.c_str());
+        if (f.sav->generation() == pksm::Generation::FOUR)
+            reloadSave(f); // v0.67: the new trainer-data copy is in the other half; read the save again
         place = w;
         sent++;
     }

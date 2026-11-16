@@ -150,7 +150,7 @@
 530 413129 3
 530 a4a4a4 1
 530 d5d5d5 0
-530 bd4141 2
+530 bd4141 1   # was 2 (= the body's grey); 2026-11-16: "excadrill is missing its stripe"
 # Whimsicott: green horns looked like the body - body light, horns dark
 547 946a41 1
 547 52a44a 2
@@ -418,3 +418,14 @@
 802 small ffef7b 0
 
 # Chespin: "was fine before" -> not in walker_review.txt, so the reviewed version is kept.
+# Dwebble (2026-11-15: "I dont like dweble's colors his shell isn't dark"): shell dark grey, its shading lines black
+557 a49c8b 2
+557 7b7373 3
+# Alomomola (2026-11-15: "Alolamola needs better separation too"): body white, fins + belly shading light grey
+594 ffbdbd 0
+594 f67383 1
+594 e68b9c 1
+# Keldeo (2026-11-15: "Base form Keldeo needs color fixing"): blue band light (apart from the dark mane), blue tail/chest light grey, its shading dark; base-only = not for Keldeo Resolute
+647 314a8b 3   # base-only  (user: "Can we keep its head cast black though?" / "Black but give it back the highlights it has": 4a6acd = the highlights, left to the rules = dark grey as before)
+647 62bdff 1   # base-only
+647 207ba4 2   # base-only

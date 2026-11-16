@@ -15,7 +15,11 @@ public static class Gen7Check
 
     static (PKM? pk, string info) Try(ushort sp, byte form, byte level, GameVersion v, bool hidden)
     {
-        PKM blank = new PK7 { Species = sp, Form = form, CurrentLevel = level };
+        // v0.60: Gen 4 games too (the DPPt sheet check): the blank is that generation's Pokemon
+        PKM blank = v is GameVersion.D or GameVersion.P or GameVersion.Pt
+            ? new PK4 { Species = sp, Form = form, CurrentLevel = level }
+            : new PK7 { Species = sp, Form = form, CurrentLevel = level };
+        blank.Gender = blank.GetSaneGender(); // female-only species (Froslass: a female Snorunt + Dawn Stone)
         List<IEncounterable> encs;
         try { encs = EncounterMovesetGenerator.GenerateEncounters(blank, ReadOnlyMemory<ushort>.Empty, v).ToList(); }
         catch (Exception e) { return (null, "error " + e.Message); }
@@ -96,12 +100,39 @@ public static class Gen7Check
     static string Describe(IEncounterable enc, PKM pk, GameVersion v)
     {
         string loc = enc.IsEgg ? "egg, hatched at " + GameInfo.GetLocationName(false, pk.MetLocation, 7, 7, v)
-                               : GameInfo.GetLocationName(false, pk.MetLocation, 7, pk.Generation, v);
+                               : GameInfo.GetLocationName(false, pk.MetLocation, pk.Format, pk.Generation, v);
         string ab = GameInfo.Strings.Ability[pk.Ability];
         return $"{enc.GetType().Name.Replace("Encounter", "")} met Lv{pk.MetLevel} at {loc} [{ab}]";
     }
 
     // where PKHeX keeps the Hall of Fame (first entry) and the Z-Crystal pouch in a Sun/Moon and an Ultra save
+    // v0.61: where Gen 4 saves keep SecondsToFame (the play time of the first Hall of Fame entry; 0 = never), and
+    // its value in the given save files
+    public static int Probe4(string[] files)
+    {
+        foreach (SAV4 sav in new SAV4[] { new SAV4DP(), new SAV4Pt() })
+        {
+            var a = sav.Data.ToArray();
+            sav.SecondsToFame = 0x12345678;
+            var b = sav.Data.ToArray();
+            for (int i = 0; i < a.Length; i++)
+                if (a[i] != b[i]) Console.WriteLine($"{sav.GetType().Name}: SecondsToFame byte at 0x{i:X}");
+        }
+        foreach (var f in files)
+        {
+            var s = SaveUtil.GetSaveFile(f) as SAV4;
+            if (s is null) { Console.WriteLine($"{f}: not a Gen 4 save"); continue; }
+            Console.WriteLine($"{Path.GetFileName(f)}: {s.Version} badges {s.Badges} SecondsToFame {s.SecondsToFame}");
+            // where it lives in this real save: set it, write, compare (checksum bytes show up too)
+            var raw = File.ReadAllBytes(f);
+            s.SecondsToFame = s.SecondsToFame ^ 0x01020304;
+            var w = s.Write().ToArray();
+            for (int i = 0; i < Math.Min(raw.Length, w.Length); i++)
+                if (raw[i] != w[i]) Console.WriteLine($"    changed byte at 0x{i:X}");
+        }
+        return 0;
+    }
+
     public static int Probe()
     {
         foreach (SAV7 sav in new SAV7[] { new SAV7SM(), new SAV7USUM() })
@@ -187,7 +218,9 @@ public static class Gen7Check
                 ? ev.Split(',').Select(Enum.Parse<GameVersion>).ToArray() : Vers;
             foreach (var v in vlist)
             {
-                var (h, hi) = Try((ushort)sp, form, level, v, true);
+                // Gen 4 has no hidden abilities, and PKHeX's Gen 4 generator never stops looking for one
+                bool gen4 = v is GameVersion.D or GameVersion.P or GameVersion.Pt;
+                var (h, hi) = gen4 ? ((PKM?)null, "Gen 4: no hidden abilities") : Try((ushort)sp, form, level, v, true);
                 var (r, ri) = Try((ushort)sp, form, level, v, false);
                 Console.WriteLine($"   {v}: HA {(h != null ? "OK " + hi : "no (" + hi + ")")}");
                 Console.WriteLine($"   {v}: reg {(r != null ? "OK " + ri : "no (" + ri + ")")}");

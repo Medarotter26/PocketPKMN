@@ -47,12 +47,14 @@ public static class Templates
     }
 
     static int Gen(GameVersion v) => v is GameVersion.GD or GameVersion.SI or GameVersion.C ? 2 :
+        v is GameVersion.D or GameVersion.P or GameVersion.Pt ? 4 :
         v is GameVersion.SN or GameVersion.MN or GameVersion.US or GameVersion.UM ? 7 : 6;
 
     static GameVersion Ver(string s) => s switch
     {
         "GD" => GameVersion.GD, "SI" => GameVersion.SI, "C" => GameVersion.C, "X" => GameVersion.X, "Y" => GameVersion.Y,
         "SN" => GameVersion.SN, "MN" => GameVersion.MN, "US" => GameVersion.US, "UM" => GameVersion.UM,
+        "D" => GameVersion.D, "P" => GameVersion.P, "Pt" => GameVersion.Pt,
         _ => throw new ArgumentException(s),
     };
 
@@ -216,8 +218,12 @@ public static class Templates
         return pk;
     }
 
-    static int Rank(IEncounterable e, byte level)
+    static int Rank(IEncounterable e, byte level, int gen = 0)
     {
+        // Gen 4 (v0.61): eggs first - a hatched Gen 4 Pokemon's PID and IVs are free (the app may pick gender and
+        // shininess), a wild one's are tied to the game's RNG method and must stay as PKHeX made them
+        if (gen == 4)
+            return e.IsEgg ? 0 : e.GetType().Name.StartsWith("EncounterSlot") ? 1 : 3;
         // hidden-ability-capable first, then wild slots, then eggs, then statics/trades/gifts
         int r = e is EncounterSlot6XY s && s.IsHorde ? 0 : 0;
         if (e.IsEgg) return 2;
@@ -250,14 +256,17 @@ public static class Templates
                 var v = Origin(p, player); // = player except for Gen 7 lines with origin=
                 int target = Gen(player) == 7 ? 7 : 0;
                 total++;
-                PKM blank = Gen(player) == 2 ? new PK2() : Gen(player) == 7 ? new PK7() : new PK6();
+                PKM blank = Gen(player) == 2 ? new PK2() : Gen(player) == 4 ? new PK4() : Gen(player) == 7 ? new PK7() : new PK6();
                 blank.Species = p.Species;
                 blank.Form = p.Form;
                 blank.CurrentLevel = p.Level;
+                if (Gen(player) == 4)
+                    blank.Gender = blank.GetSaneGender(); // female-only species (Froslass) need a female blank
                 IEnumerable<IEncounterable> encs;
                 try { encs = EncounterMovesetGenerator.GenerateEncounters(blank, p.Moves, v).ToList(); }
                 catch (Exception e) { cells.Add("ERROR " + e.Message); missing++; continue; }
-                var usable = encs.Where(e => e.IsEgg || e.LevelMin <= p.Level).OrderBy(e => Rank(e, p.Level)).ToList();
+                var usable = encs.Where(e => e.IsEgg || e.LevelMin <= p.Level)
+                                 .OrderBy(e => Rank(e, p.Level, Gen(player) == 4 ? 4 : 0)).ToList();
                 PKM? best = null;
                 IEncounterable? from = null;
                 bool hidden = false, traded = false;
@@ -270,10 +279,15 @@ public static class Templates
                     }
                 if (best == null && p.Ha == 1)
                     Console.WriteLine($"note: {p.CourseName} {p.Name} ({player}): no legal hidden ability ({lastWhy})");
+                // v0.66: a Gen 4 egg is tried several times - a one-gender evolution (Froslass) needs the egg to have
+                // hatched as that gender, and one unlucky try sent D / P Froslass to a wild origin (which the app
+                // cannot make shiny). As done to the existing file by "pkhex-check egg4".
+                int attempts = Gen(player) == 4 ? 40 : 1;
                 if (best == null)
                     foreach (var e in usable)
                     {
-                        best = Build(e, p, v, false, out traded, out lastWhy, target);
+                        for (int a = 0; a < (e.IsEgg ? attempts : 1) && best == null; a++)
+                            best = Build(e, p, v, false, out traded, out lastWhy, target);
                         if (best != null) { from = e; break; }
                     }
                 if (best == null || from == null)
@@ -282,6 +296,27 @@ public static class Templates
                     cells.Add("**NO LEGAL ORIGIN** (" + lastWhy.Replace("|", "/") + ")");
                     continue;
                 }
+                // v0.64 (review 2026-11, finding 2): a Gen 7 catch whose origin is ANOTHER Gen 7 game (Mantyke in Moon
+                // comes from Ultra Moon ...) can only be in the player's game after a trade, and then the player is its
+                // current handler. Without this PKHeX, with the save open, says "Invalid Current handler value" (152 of
+                // 432 Moon catches). Same marking as the X / Y Ditto above; the app puts the player's name and gender
+                // in place of "PLAYER" (source/walk_catch.cpp).
+                if (target == 7 && v != player && best.Format == 7 && Gen(v) == 7)
+                {
+                    var me = Trainer(player);
+                    best.HandlingTrainerName = me.OT;
+                    best.HandlingTrainerGender = (byte)me.Gender;
+                    best.CurrentHandler = 1;
+                    best.RefreshChecksum();
+                    var laH = new LegalityAnalysis(best);
+                    if (!laH.Valid)
+                    {
+                        missing++;
+                        cells.Add("**NOT LEGAL AS RECEIVED IN A TRADE** (" + string.Join(" / ", laH.Report().Split('\n')
+                            .Select(s => s.Trim()).Where(s => s.StartsWith("Invalid")).Take(3)) + ")");
+                        continue;
+                    }
+                }
                 int fixedIVs = from is IFixedIVSet { IVs.IsSpecified: true } ? 6 :
                                from is IFlawlessIVCount f ? f.FlawlessIVCount : 0;
                 // Gen 7: a wild Pokemon with its hidden ability comes from an SOS chain, which PKHeX requires to have
@@ -289,7 +324,8 @@ public static class Templates
                 if (target == 7 && hidden && !from.IsEgg && from is EncounterSlot7)
                     fixedIVs = Math.Max(fixedIVs, 2);
                 byte flags = (byte)((hidden ? 1 : 0) | (from.IsEgg ? 2 : 0) | (traded ? 4 : 0));
-                byte[] data = best is PK2 pk2 ? pk2.Data.ToArray()[..32] : best.Data.ToArray()[..232];
+                byte[] data = best is PK2 pk2 ? pk2.Data.ToArray()[..32]
+                            : best is PK4 ? best.Data.ToArray()[..136] : best.Data.ToArray()[..232]; // PK4: 136-byte box data
                 bw.Write((byte)vi); bw.Write((byte)p.Course); bw.Write((byte)p.Index); bw.Write((byte)best.Format);
                 bw.Write(flags); bw.Write((byte)fixedIVs); bw.Write((ushort)data.Length); bw.Write(data);
                 string loc = from.IsEgg ? "egg" : GameInfo.GetLocationName(false, best.MetLocation, best.Format,

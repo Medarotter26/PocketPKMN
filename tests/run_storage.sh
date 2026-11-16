@@ -51,4 +51,12 @@ if [ -x ~/pkhex-check/bin/Release/net10.0/pkhex-check ]; then
   DOTNET_ROOT=$HOME/.dotnet ~/pkhex-check/bin/Release/net10.0/pkhex-check memecheck "$OUT/gen7_result.main" | head -1 | cut -c1-70
   DOTNET_ROOT=$HOME/.dotnet ~/pkhex-check/bin/Release/net10.0/pkhex-check sav "$OUT/gen7_result.main" | head -1
 fi
+# v0.62: Gen 4 box changes against what Platinum / Diamond did (the user's Checkpoint pairs), then PKHeX on the results
+g++ -std=gnu++20 -O1 -Wall -Wextra $DEFS $INC -I$HERE/include "$HERE/tests/test_gen4.cpp" "$HERE/source/gamematch.cpp" "${objs[@]}" -o "$OUT/test_gen4"
+"$OUT/test_gen4" "$HERE/hw/gen4/pt_before_190651.sav" "$HERE/hw/gen4/pt_after_190903.sav" 4 1 3 1 "$OUT/gen4_pt_result.sav"
+"$OUT/test_gen4" "$HERE/hw/gen4/d_before_190400.sav" "$HERE/hw/gen4/d_after_190549.sav" 1 1 18 1 "$OUT/gen4_d_result.sav"
+if [ -x ~/pkhex-check/bin/Release/net10.0/pkhex-check ]; then
+  DOTNET_ROOT=$HOME/.dotnet ~/pkhex-check/bin/Release/net10.0/pkhex-check slots "$HERE/hw/gen4/pt_after_190903.sav" "$OUT/gen4_pt_result.sav"
+  DOTNET_ROOT=$HOME/.dotnet ~/pkhex-check/bin/Release/net10.0/pkhex-check slots "$HERE/hw/gen4/d_after_190549.sav" "$OUT/gen4_d_result.sav"
+fi
 "$OUT/test_storage" "$@"

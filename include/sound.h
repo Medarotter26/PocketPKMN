@@ -28,6 +28,9 @@ int sound_available(void);       // 1 if the sound chip started (DSP firmware pr
 
 void sound_play(int id);          // a one-shot effect (SND_CLICK, SND_SUCCESS, SND_FAIL)
 void sound_transfer(int on);      // the transfer sound loops while on; the music goes quieter meanwhile
+// v0.59: a walker link is about to open (1) / has closed (0). 1 dims the music completely before it returns (about
+// 0.25 s, call it BEFORE the IR link opens); 0 lets it glide back up afterwards.
+void sound_link(int on);
 
 // hidScanInput() + a click for a newly pressed button (A, B, X, Y, D-pad, L, R, START, touch). The menus call
 // this instead of hidScanInput(); hidKeysDown() etc. work as usual afterwards.

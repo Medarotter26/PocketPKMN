@@ -412,7 +412,7 @@ def drop_fragments(out, body, w, h):
                 body[cy][cx] = False
 
 
-def to_walker_frames(frames, w, h, num=None):
+def to_walker_frames(frames, w, h, num=None, ref_first=False, window_shift=(0, 0)):
     """Stock walker style for one or more frames: the sprite at its own pixel size
     (no scaling), mirrored (stock walker sprites face right, DS sprites face left).
     Bigger than w x h: cropped, keeping the top and the FACING side (after mirroring
@@ -426,9 +426,16 @@ def to_walker_frames(frames, w, h, num=None):
         b = f.getchannel("A").point(lambda a: 255 if a >= 128 else 0).getbbox()
         if b:
             bbox = b if not bbox else (min(bbox[0], b[0]), min(bbox[1], b[1]), max(bbox[2], b[2]), max(bbox[3], b[3]))
+    # ref_first (Gen 5 second key frame, 2026-11-15): the window is placed exactly as
+    # for frame 1 alone (frame 1 stays as reviewed), while nothing of frame 2 that
+    # reaches past frame 1's outline is cut before the window. Default: unchanged.
+    ref = frames[0].getchannel("A").point(lambda a: 255 if a >= 128 else 0).getbbox() if (ref_first and bbox) else None
     if bbox:
         frames = [f.crop(bbox) for f in frames]
     sw, sh = frames[0].size
+    real_size = (sw, sh)
+    if ref:
+        sw, sh = ref[2] - ref[0], ref[3] - ref[1]     # placement as for frame 1 alone
     # Big Pokemon (user review 1: ~20 "odd" crops - the BW / Smogon sprites are drawn
     # larger than the HGSS ones, so cropping at 1:1 left only a random piece): the
     # LARGE picture is shrunk just enough to fit, but never below MIN_SCALE; the
@@ -470,6 +477,14 @@ def to_walker_frames(frames, w, h, num=None):
             x0 = min(max(x0 + dx, 0), sw - w)
         if sh > h:
             y0 = min(max(y0 + dy, 0), sh - h)
+    if ref:
+        x0 += ref[0] - bbox[0]
+        y0 += ref[1] - bbox[1]
+        sw, sh = real_size
+    # window_shift (Gen 5 second key frame): the window of an older reviewed file, which
+    # sits a few pixels away from where today's rules put it. Default (0, 0): unchanged.
+    x0 -= window_shift[0]
+    y0 -= window_shift[1]
     # Colour review (user: "all of those left have coloring issues" - Roggenrola
     # turned white, Cosmog / Venipede black blobs, Patrat's / Gothita's / Marshadow's
     # eyes gone, Deerling's pink gone, Pansage too dark):

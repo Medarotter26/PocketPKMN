@@ -155,7 +155,7 @@ poke C 0 50 310 33 5000 316 422 44 435 form=0 origin=UM ha=1 ; Manectric: Odor S
 item 0 20 322 8000 all ; Electirizer
 item 1 20 233 7000 all ; Metal Coat
 item 2 30 24 6000 all ; Max Potion
-item 3 30 300 5000 all ; Zap Plate
+item 3 30 236 5000 all ; Light Ball
 item 4 30 83 4000 all ; Thunder Stone
 item 5 40 881 3000 all ; Electric Seed
 item 6 50 546 2000 all ; Cell Battery
@@ -173,7 +173,7 @@ poke C 0 50 343 35 5000 120 326 470 471 form=0 origin=UM ha=0 ; Baltoy: Self-Des
 item 0 20 108 8000 all ; Dusk Stone
 item 1 20 41 7000 all ; Max Elixir
 item 2 30 325 6000 all ; Reaper Cloth
-item 3 30 310 5000 all ; Spooky Plate
+item 3 30 219 5000 all ; Mental Herb
 item 4 30 278 4000 all ; Iron Ball
 item 5 40 247 3000 all ; Spell Tag
 item 6 50 25 2000 all ; Hyper Potion
@@ -210,7 +210,7 @@ item 0 20 537 8000 all ; Prism Scale
 item 1 20 29 7000 all ; Max Revive
 item 2 30 227 6000 all ; Deep Sea Scale
 item 3 30 226 5000 all ; Deep Sea Tooth
-item 4 30 299 4000 all ; Splash Plate
+item 4 30 254 4000 all ; Sea Incense
 item 5 40 648 3000 all ; Luminous Moss
 item 6 50 245 2000 all ; Poison Barb
 item 7 50 582 1000 all ; Pearl String
@@ -226,7 +226,7 @@ poke C 0 50 37 54 7000 59 288 445 329 form=1 origin=SN,US ha=1 ; Vulpix: Blizzar
 poke C 0 50 27 54 7000 360 14 258 59 form=1 origin=MN,UM ha=1 ; Sandshrew: Gyro Ball, Swords Dance, Hail, Blizzard [Sandshrew (Alolan)]
 item 0 20 849 8000 all ; Ice Stone
 item 1 20 326 7000 all ; Razor Claw
-item 2 30 302 6000 all ; Icicle Plate
+item 2 30 213 6000 all ; Bright Powder
 item 3 30 246 5000 all ; Never-Melt Ice
 item 4 30 282 4000 all ; Icy Rock
 item 5 40 649 3000 all ; Snowball
@@ -240,7 +240,7 @@ poke A 2 100 722 5 0 33 670 45 0 form=0 origin=SN,MN,US,UM ha=1 ; Rowlet: Tackle
 poke A 2 100 725 5 0 10 52 45 0 form=0 origin=SN,MN,US,UM ha=1 ; Litten: Scratch, Ember, Growl
 poke B 1 75 728 5 7500 1 55 45 0 form=0 origin=SN,MN,US,UM ha=1 ; Popplio: Pound, Water Gun, Growl
 poke B 1 75 133 5 7500 45 270 343 28 form=0 origin=SN,MN,US,UM ha=1 ; Eevee: Growl, Helping Hand, Covet, Sand Attack
-poke C 0 50 137 5 10000 33 159 160 176 form=0 origin=SN,MN,US,UM ha=0 ; Porygon: Tackle, Sharpen, Conversion, Conversion 2
+poke C 0 50 778 5 10000 310 383 452 104 form=0 origin=SN,MN,US,UM ha=0 ; Mimikyu: Astonish, Copycat, Wood Hammer, Double Team
 poke C 0 50 137 5 10000 33 159 160 176 form=0 origin=SN,MN,US,UM ha=0 ; Porygon: Tackle, Sharpen, Conversion, Conversion 2
 item 0 20 280 8000 all ; Destiny Knot
 item 1 20 538 7000 all ; Eviolite
@@ -301,7 +301,7 @@ item 1 20 326 8000 all ; Razor Claw
 item 2 30 41 6000 all ; Max Elixir
 item 3 30 197 5000 all ; Haban Berry
 item 4 30 250 4000 all ; Dragon Fang
-item 5 40 311 3000 all ; Draco Plate
+item 5 40 270 3000 all ; Life Orb
 item 6 50 23 2000 all ; Full Restore
 item 7 50 39 1000 all ; Max Ether
 item 8 50 24 500 all ; Max Potion

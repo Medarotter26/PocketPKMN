@@ -21,6 +21,14 @@ const char *routes_file_for(unsigned long long title_id, int gen, const char **v
 	} else if (gen == 6 && title_id == 0x0004000000055E00ULL) {
 		file = "xy";
 		v = "y";
+	} else if (gen == 4 && (title_id >> 32) == 0x0004800DULL) {
+		// v0.61: DS saves get a made-up title ID (storage.cpp): bits 24-31 = 1 Diamond, 2 Pearl, 3 Platinum
+		static const char *const v4[] = { NULL, "d", "p", "pt" };
+		unsigned game = (unsigned)(title_id >> 24) & 0xFF;
+		if (game >= 1 && game <= 3) {
+			file = "dppt";
+			v = v4[game];
+		}
 	} else if (gen == 7) { // Sun / Moon / Ultra Sun / Ultra Moon (game card and download share the title ID)
 		static const struct { unsigned long long tid; const char *v; } g7[] = {
 			{ 0x0004000000164800ULL, "sn" }, { 0x0004000000175E00ULL, "mn" },

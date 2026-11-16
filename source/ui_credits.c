@@ -39,6 +39,8 @@ static const char *const k_lines[] = {
 	"",
 	"#Code",
 	"PKSM-Core by FlagBrew and contributors (GPL-3.0).",
+	"PKHeX.Core by Kurt (kwsch) and contributors (GPL-3.0):", // v0.68 (owner), as docs/CREDITS.md
+	"catch checks; species names in other languages.",
 	"libctru, citro2d, citro3d, devkitARM by devkitPro (zlib).",
 	"Luma3DS csvc stub (zlib).",
 	"",

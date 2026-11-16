@@ -15,9 +15,13 @@
 #define CH_TRANSFER 2
 #define MUSIC_VOL 0.55f
 // v0.57 (console test: "the transfer soundeffect is really quiet and the music isn't quiet enough during transfer,
-// fade also takes too long"): music down to 0.07 (was 0.18), transfer at full level (its file is louder too), fade
-// 0.5 s (was 1.5 s)
-#define MUSIC_VOL_QUIET 0.07f // while the transfer sound plays (user: "the background music should dim")
+// fade also takes too long"): transfer at full level (its file is louder too), fade 0.5 s (was 1.5 s).
+// v0.59 (user: "the music isn't getting quiet quick enough ... Volume should be dim and finished fading by the time
+// the ir arc animation begins ... you can restore the prior music volume level"): back to 0.18; the dim now happens
+// in sound_link(1), on the main thread, before the IR link opens (the fade thread hardly runs during IR traffic,
+// which is why the fade crawled).
+#define MUSIC_VOL_QUIET 0.18f // while a walker link is open (user: "the background music should dim")
+#define LINK_DIM_S 0.25f      // sound_link(1): the whole dim takes this long, before IR starts
 #define FX_VOL 0.9f
 #define TRANSFER_VOL 1.0f
 // user: "It should be a gradual fade down not a sudden jump to lower volume": volumes glide to their targets,
@@ -31,7 +35,7 @@ typedef struct clip {
 	u16 channels;
 } clip;
 
-static int ready, music_on, fx_on, transfer_on;
+static int ready, music_on, fx_on, transfer_on, link_on;
 static clip music, fx[SND_COUNT];
 static ndspWaveBuf wb_music[2], wb_fx, wb_transfer;
 
@@ -95,33 +99,88 @@ static float glide(float cur, float target, float step)
 	return cur - step < target ? target : cur - step;
 }
 
+// v0.62 (console: the app hung on HOME -> Close, twice): the fade thread rests while the app is suspended (HOME menu,
+// sleep) and stops when the system closes the app; it no longer calls the sound service while holding `lock`
+// (the main thread takes `lock` for every click - the two must never wait on each other).
+static volatile int fade_paused;
+static aptHookCookie fade_hook;
+
+static void fade_apt_hook(APT_HookType hook, void *param)
+{
+	(void)param;
+	if (hook == APTHOOK_ONSUSPEND || hook == APTHOOK_ONSLEEP)
+		fade_paused = 1;
+	else if (hook == APTHOOK_ONRESTORE || hook == APTHOOK_ONWAKEUP)
+		fade_paused = 0;
+	else if (hook == APTHOOK_ONEXIT) {
+		fade_paused = 1;
+		fade_run = 0;
+	}
+}
+
 // every FADE_TICK_MS: move both volumes a step towards their targets; a faded-out transfer loop is stopped
 static void fade_main(void *arg)
 {
 	(void)arg;
 	const float step = (float)FADE_TICK_MS / 1000.0f / FADE_S; // a 0 -> 1 change takes FADE_S seconds
 	while (fade_run) {
-		LightLock_Lock(&lock);
-		if (music_cur != music_target) {
-			music_cur = glide(music_cur, music_target, step * MUSIC_VOL);
-			set_vol(CH_MUSIC, music_cur);
-		}
-		if (transfer_playing && transfer_cur != transfer_target) {
-			transfer_cur = glide(transfer_cur, transfer_target, step * TRANSFER_VOL);
-			set_vol(CH_TRANSFER, transfer_cur);
-			if (transfer_cur <= 0.0f && transfer_target <= 0.0f) {
-				ndspChnWaveBufClear(CH_TRANSFER);
-				transfer_playing = 0;
+		if (!fade_paused) {
+			int set_music = 0, set_transfer = 0, stop_transfer = 0;
+			float mv = 0, tv = 0;
+			LightLock_Lock(&lock); // only our own numbers under the lock ...
+			if (music_cur != music_target) {
+				music_cur = glide(music_cur, music_target, step * MUSIC_VOL);
+				mv = music_cur;
+				set_music = 1;
 			}
+			if (transfer_playing && transfer_cur != transfer_target) {
+				transfer_cur = glide(transfer_cur, transfer_target, step * TRANSFER_VOL);
+				tv = transfer_cur;
+				set_transfer = 1;
+				if (transfer_cur <= 0.0f && transfer_target <= 0.0f) {
+					transfer_playing = 0;
+					stop_transfer = 1;
+				}
+			}
+			LightLock_Unlock(&lock);
+			if (set_music) // ... the sound service outside it
+				set_vol(CH_MUSIC, mv);
+			if (set_transfer)
+				set_vol(CH_TRANSFER, tv);
+			if (stop_transfer)
+				ndspChnWaveBufClear(CH_TRANSFER);
 		}
-		LightLock_Unlock(&lock);
 		svcSleepThread((s64)FADE_TICK_MS * 1000000LL);
 	}
 }
 
 static float music_level(void)
 {
-	return transfer_on && fx_on ? MUSIC_VOL_QUIET : MUSIC_VOL;
+	return link_on || (transfer_on && fx_on) ? MUSIC_VOL_QUIET : MUSIC_VOL;
+}
+
+void sound_link(int on)
+{
+	if (on == link_on)
+		return;
+	LightLock_Lock(&lock);
+	link_on = on;
+	music_target = music_level();
+	LightLock_Unlock(&lock);
+	if (!on || !ready || !music.data || !music_on)
+		return; // coming back up: the fade thread does it once the link is closed
+	// going down: done right here, on the caller's thread, before the IR link opens
+	const float step = (MUSIC_VOL - MUSIC_VOL_QUIET) * FADE_TICK_MS / 1000.0f / LINK_DIM_S;
+	for (int guard = 0; guard < 200; guard++) {
+		LightLock_Lock(&lock);
+		music_cur = glide(music_cur, music_target, step);
+		set_vol(CH_MUSIC, music_cur);
+		int done = music_cur == music_target;
+		LightLock_Unlock(&lock);
+		if (done)
+			break;
+		svcSleepThread((s64)FADE_TICK_MS * 1000000LL);
+	}
 }
 
 static void music_start(void) // under the lock
@@ -188,7 +247,8 @@ void sound_init(int want_music, int want_fx)
 	if (!fade_thread) {
 		fade_run = 0;
 		dbg_printf("sound: no fade thread (volume changes are immediate)");
-	}
+	} else
+		aptHook(&fade_hook, fade_apt_hook, NULL); // v0.62: rest while suspended, stop when the app closes
 	LightLock_Lock(&lock);
 	if (music_on)
 		music_start();
@@ -198,9 +258,13 @@ void sound_init(int want_music, int want_fx)
 void sound_exit(void)
 {
 	if (fade_thread) {
+		aptUnhook(&fade_hook);
 		fade_run = 0;
-		threadJoin(fade_thread, U64_MAX);
-		threadFree(fade_thread);
+		// v0.62: never wait forever on exit (it sleeps 10 ms between steps; 1 s is plenty)
+		if (R_FAILED(threadJoin(fade_thread, 1000000000ULL)))
+			dbg_printf("sound: fade thread did not stop within 1 s");
+		else
+			threadFree(fade_thread);
 		fade_thread = NULL;
 	}
 	if (!ready)

@@ -88,6 +88,17 @@ int main(int argc, char** argv)
             CHECK(walkerbox::addItemToSave(*sav, courseId, false, where), "re-add");
             CHECK(walkerbox::gameMatchItems(*sav, before.data(), (u32)len, note), "%s: %s", argv[a], note.c_str());
             std::vector<u8> mid(sav->rawData().get(), sav->rawData().get() + len);
+            if (sav->generation() == pksm::Generation::FOUR)
+            {
+                // v0.67: a Gen 4 item goes into a new trainer-data copy in the other half; the app reads the save
+                // again after every such write, and so does this test
+                std::shared_ptr<u8[]> re(new u8[len]);
+                memcpy(re.get(), mid.data(), len);
+                sav = pksm::Sav::getSave(re, (u32)len);
+                CHECK(sav && sav->checksumsValid(), "%s: not readable after the first item", argv[a]);
+                if (!sav)
+                    continue;
+            }
             CHECK(walkerbox::addItemToSave(*sav, 17, false, where), "re-add 2");
             CHECK(walkerbox::gameMatchItems(*sav, mid.data(), (u32)len, note), "%s: %s", argv[a], note.c_str());
         }

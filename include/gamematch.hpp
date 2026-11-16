@@ -59,6 +59,14 @@ namespace walkerbox
     // signature changed; refused if the checksums were not valid before or anything else would change.
     bool gameMatchFinish7(pksm::Sav& sav, const uint8_t* before, uint32_t length, int editedBox, std::string& note);
 
+    // v0.62: Gen 4 (Diamond / Pearl / Platinum): only the edited box in the storage block + that block's CRC may
+    // change (learned from the user's Checkpoint pairs). Refused otherwise.
+    // v0.67: saved the game's way - the result is `before` with the edited boxes block written into the OTHER half
+    // (block counter + 1, its CRC); the current copy is untouched. `sav` still looks at the old copy afterwards:
+    // read the save again before using it (as after gameMatchFinish3). gameMatchItems does the same for the
+    // trainer-data block of a Gen 4 save.
+    bool gameMatchFinish4(pksm::Sav& sav, const uint8_t* before, uint32_t length, int editedBox, std::string& note);
+
     // v0.53: items added to the save (Gen 2: the PC item list; X/Y: the bag) - only what the game itself changes when
     // it stores an item: that one item list, plus Gen 2's main checksum / X/Y's block checksum. Everything else is
     // put back. Refused (false, sav as before) if the edit touched more than one item list or anything else changed.

@@ -66,6 +66,9 @@
 760 touch
 771 touch
 807 touch
+557 touch    # 2026-11-15: "I dont like dweble's colors his shell isn't dark"
+594 touch    # 2026-11-15: "Alolamola needs better separation too"
+563 touch    # 2026-11-15: "Cofagrigous needs to be centered better"
 
 # Colour (the colour sheet the user reviewed, plus the ones named after it)
 504 colour
