@@ -22,7 +22,8 @@ gcc -std=c99 $CFLAGS -I$HERE/include -DWBX_SPRITE_PC_DIR="$PACK" \
 
 gcc -std=c99 $CFLAGS -I$HERE/include -DWBX_SPRITE_PC_DIR="$PACK" \
     $HERE/source/pw_image.c $HERE/source/pw_font.c $HERE/source/pw_proto.c $HERE/source/wbx_sprites.c \
-    $HERE/source/walk_compose.c $HERE/source/wbx_trainer.c $HERE/tests/test_trainer.c -o /tmp/walkerbox_test_trainer
+    $HERE/source/walk_compose.c $HERE/source/wbx_trainer.c $HERE/source/safe_file.c $HERE/tests/test_trainer.c \
+    -o /tmp/walkerbox_test_trainer # v0.81 (review finding 5 / E, owner: "Go 12" (all three)): + safe_file.c
 /tmp/walkerbox_test_trainer $HERE/hw/w3/eeprom_021.bin
 
 PK="$HERE/lib/PKSM-Core"
@@ -52,7 +53,8 @@ g++ -std=gnu++20 -O1 -Wall -Wextra $DEFS $INC -I$HERE/include -DWBX_SPRITE_PC_DI
 "$OUT/test_walk_poke" $HERE/hw/storage_s2/0004000000171100-20261118-165312.sav \
     $HERE/hw/gen2/0004000000172800-20261118-190237.sav $HERE/hw/gen2/0004000000172700-20261118-185538.sav \
     $HERE/hw/gen3/0004000003ea7a00-20261118-202244.gbavc \
-    $HERE/hw/gen6/0004000000055d00-20261118-204520.main $HERE/hw/gen6/000400000011c500-20261118-205138.main
+    $HERE/hw/gen6/0004000000055d00-20261118-204520.main $HERE/hw/gen6/000400000011c500-20261118-205138.main \
+    --names $HERE/romfs/i18n/ $HERE/tests/names_eng_today.txt # v0.81 (names step 1, owner: "Go 12")
 
 # Gen 6 end to end (user 2026-11-15): out of the box -> walk gains -> back into the same slot, on every hw/gen6 save.
 g++ -std=gnu++20 -O1 -Wall -Wextra $DEFS $INC -I$HERE/include -DWBX_SPRITE_PC_DIR="$PACK" \

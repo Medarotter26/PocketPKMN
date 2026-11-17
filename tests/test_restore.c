@@ -60,10 +60,12 @@ int main(int argc, char **argv)
 
 	// v0.70: the restorable areas, block by block (owner: menu pictures, event log, peers only)
 	for (unsigned a = 0; a < RP_EEPROM_SIZE; a += RP_CHUNK) {
-		int want = (a >= 0x0280 && a < 0x8C80) || (a >= 0xCF00 && a < 0xD480) || a >= 0xDC00;
+		int want = ((a >= 0x0280 && a < 0x8C80) || (a >= 0xCF00 && a < 0xD480) || a >= 0xDC00) &&
+		           !(a >= 0x1200 && a < 0x1400); // v0.75: never the trainer-name picture's blocks
 		CHECK(rp_restorable(a) == want, "block 0x%04X: restorable %d", a, rp_restorable(a));
 	}
-	static const unsigned never[] = {0x8C80, 0x8F00, 0xB780, 0xB800, 0xCC00, 0xCE00, 0xCE80, 0xD480, 0xDB80};
+	static const unsigned never[] = {0x1200, 0x1280, 0x1300, 0x1380, 0x8C80, 0x8F00, 0xB780, 0xB800, 0xCC00, 0xCE00,
+	                                 0xCE80, 0xD480, 0xDB80};
 	for (unsigned k = 0; k < sizeof(never) / sizeof(never[0]); k++)
 		CHECK(!rp_restorable(never[k]), "walk / team / checked block 0x%04X is restorable", never[k]);
 	for (int i = 0; i < n; i++) {

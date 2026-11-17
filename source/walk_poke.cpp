@@ -2,6 +2,7 @@
 #include "walk_poke.hpp"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 
 #include "enums/Ball.hpp"
@@ -10,6 +11,7 @@
 #include "enums/Gender.hpp"
 #include "enums/Language.hpp"
 #include "utils/i18n.hpp"
+#include "pw_image.h"
 #include "wbx_sprites.h"
 
 namespace walkerbox
@@ -36,16 +38,82 @@ namespace walkerbox
                 out.pop_back();
             return out;
         }
+
+        // v0.81 (names step 1, owner: "Go 12"): what the name PICTURE keeps - every character
+        // the WalkerBox font draws (pw_glyph_for: printable ASCII, accented letters, gender signs);
+        // anything else (other scripts, broken UTF-8) is left out as in plainText.
+        std::string pictureText(const std::string& in)
+        {
+            std::string out;
+            size_t i = 0;
+            while (i < in.size()) {
+                unsigned char c = (unsigned char)in[i];
+                size_t len = c < 0x80 ? 1 : (c & 0xE0) == 0xC0 ? 2 : (c & 0xF0) == 0xE0 ? 3 : (c & 0xF8) == 0xF0 ? 4 : 0;
+                bool ok = len != 0 && i + len <= in.size();
+                for (size_t k = 1; ok && k < len; k++)
+                    ok = ((unsigned char)in[i + k] & 0xC0) == 0x80;
+                if (!ok) {
+                    i++;
+                    continue;
+                }
+                uint32_t cp = len == 1 ? c
+                            : len == 2 ? ((uint32_t)(c & 0x1F) << 6) | ((unsigned char)in[i + 1] & 0x3F)
+                            : len == 3 ? ((uint32_t)(c & 0x0F) << 12) | (((unsigned char)in[i + 1] & 0x3Fu) << 6) |
+                                             ((unsigned char)in[i + 2] & 0x3F)
+                                       : 0;
+                bool keep = len == 1 ? (cp >= 0x20 && cp <= 0x7E)
+                          : len == 2 ? cp >= 0x80 && pw_glyph_for(cp) >= 0
+                          : len == 3 ? cp >= 0x800 && pw_glyph_for(cp) >= 0
+                                     : false;
+                if (keep)
+                    out.append(in, i, len);
+                i += len;
+            }
+            while (!out.empty() && out.back() == ' ')
+                out.pop_back();
+            return out;
+        }
+
+        // The first n characters (UTF-8 code points) of s.
+        std::string firstChars(const std::string& s, size_t n)
+        {
+            size_t chars = 0;
+            for (size_t i = 0; i < s.size(); i++)
+                if (((unsigned char)s[i] & 0xC0) != 0x80 && chars++ == n)
+                    return s.substr(0, i);
+            return s;
+        }
+    }
+
+    std::string walkerNicknameText(const std::string& nickname, const std::string& englishSpecies)
+    {
+        std::string n = plainText(nickname);
+        if (n.empty())
+            n = plainText(englishSpecies);
+        if (n.size() > 10)
+            n.resize(10);
+        return n;
+    }
+
+    std::string walkerNicknamePictureText(const std::string& nickname, const std::string& englishSpecies)
+    {
+        // v0.81 (names step 1, owner: "Go 12"): the PICTURE holds up to 12 characters (Gen 6+ names are up to 12;
+        // every name of eng/fre/ger/spa/ita fits the 80 px - tests/test_walk_poke --names); the stored Gen 4 text
+        // (walkerNicknameText) stays at the format's 10. The fallback (nothing ASCII left in the nickname: Japanese,
+        // Korean, Chinese) is today's English species name, also up to 12 characters in the picture.
+        if (plainText(nickname).empty())
+            return firstChars(plainText(englishSpecies), 12);
+        return firstChars(pictureText(nickname), 12);
     }
 
     std::string walkerNickname(const pksm::PKX& pk)
     {
-        std::string n = plainText(pk.nickname());
-        if (n.empty())
-            n = plainText(i18n::species(pksm::Language::ENG, pk.species()));
-        if (n.size() > 10)
-            n.resize(10);
-        return n;
+        return walkerNicknameText(pk.nickname(), i18n::species(pksm::Language::ENG, pk.species()));
+    }
+
+    std::string walkerNicknamePicture(const pksm::PKX& pk)
+    {
+        return walkerNicknamePictureText(pk.nickname(), i18n::species(pksm::Language::ENG, pk.species()));
     }
 
     u16 walkEvCap(int gen)
@@ -165,7 +233,12 @@ namespace walkerbox
         wbx_summary_pack(out.summary, species, item, moves, pk.level(), variant, flags);
         std::string nick = walkerNickname(pk);
         wbx_text_pack(nick.c_str(), out.nickname, 11, 1);
-        wbx_label_image(nick.c_str(), 80, 16, out.name_img);
+        // v0.81 (names step 1, owner: "Go 12"): the picture shows the name with its accents and
+        // gender signs; the stored text above stays ASCII (walkerNickname).
+        std::string shown = walkerNicknamePicture(pk);
+        wbx_label_image(shown.c_str(), 80, 16, out.name_img);
+        // v0.82: the same name for the app's own screens (walk_compose.h display_name)
+        snprintf(out.display_name, sizeof(out.display_name), "%s", shown.c_str());
         out.friendship = gen == 1 ? 70 : pk.currentFriendship();
         // Sprite only (user 2026-11-15: Gen 1/2 Pokemon use the Gen 1/2 set; Unown by its letter). The summary
         // above is unchanged.

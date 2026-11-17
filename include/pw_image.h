@@ -35,6 +35,8 @@ void pw_img_decode(const uint8_t *in, int w, int h, uint8_t *shades);
 // Render UTF-8 text (ASCII + é/É + "\n" for a second line when h >= 32) into a
 // w x h walker image, black text on white, vertically centred per 16-px line,
 // left aligned with a 1-px margin. Unknown characters are drawn as '?'.
+// v0.81 (names step 1, owner: "Go 12"): every character pw_glyph_for()
+// knows is drawn (accented Latin letters, oe/OE, sharp s, male/female signs).
 // If the image has more 16-px lines than the text, the text block is centred
 // vertically in the image. Returns 0 if it fit, -1 if it was cut off (still
 // renders what fits).
@@ -52,7 +54,8 @@ int pw_text_width(const char *utf8);
 #define PW_FONT_ROWS     14
 #define PW_FONT_LINE_H   16
 #define PW_FONT_Y_OFFSET 1
-#define PW_FONT_COUNT    97   // 0x20..0x7E, then e-acute (95), E-acute (96)
+// v0.81 (names step 1, owner: "Go 12"): 97 -> 144 glyphs.
+#define PW_FONT_COUNT    144  // 0x20..0x7E, then e-acute (95), E-acute (96), then pw_font_extra_cp[2..]
 #define PW_FONT_E_ACUTE  95
 #define PW_FONT_CE_ACUTE 96
 
@@ -62,6 +65,14 @@ typedef struct {
 } pw_glyph_t;
 
 extern const pw_glyph_t pw_font_glyphs[PW_FONT_COUNT];
+
+// v0.81 (names step 1, owner: "Go 12"): the Unicode code point of glyph PW_FONT_E_ACUTE + i.
+extern const uint16_t pw_font_extra_cp[PW_FONT_COUNT - PW_FONT_E_ACUTE];
+
+// Glyph index for a Unicode code point, or -1 if the font has no glyph for it. U+2018/U+2019 are drawn
+// as ', U+2024 (one-dot leader) as '.', U+E08E/U+E08F (the gender signs as PKSM-Core gives them for
+// Gen 5+) as the male/female signs. Control characters: -1.
+int pw_glyph_for(uint32_t cp);
 
 #ifdef __cplusplus
 }

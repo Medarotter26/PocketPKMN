@@ -79,11 +79,15 @@ int wp_save(const char *base, wp_record *rec)
 	FILE *old = fopen(base, "rb");
 	if (old) {
 		fclose(old);
-		if (rename(base, bak) != 0)
+		if (rename(base, bak) != 0) {
+			remove(tmp); // v0.80 (advisor R1): a failed save leaves no newer copy behind (the old one stays newest)
 			return -1;
+		}
 	}
-	if (rename(tmp, base) != 0)
+	if (rename(tmp, base) != 0) {
+		remove(tmp); // v0.80 (advisor R1): as above - .bak (the old record) is the newest valid copy again
 		return -1;
+	}
 	remove(bak);
 	return 0;
 }
@@ -140,4 +144,26 @@ int wp_settle_started(wp_record *r)
 			n++;
 		}
 	return n;
+}
+
+// v0.80 (advisor R1, owner: "go ahead and fix everything")
+int wp_begin_step(uint8_t *st, int (*save)(void *ctx), void *ctx)
+{
+	*st = WP_STARTED;
+	if (save(ctx) == 0)
+		return 1;
+	*st = WP_TODO; // not on the card: not started, and a later save must not write it as started
+	return 0;
+}
+
+// v0.80 (advisor R2, owner: "go ahead and fix everything"): an entry starts with its generation byte (0 = empty / not read)
+int wp_entry_ok(const wp_record *r) { return r->entry[0] != 0; }
+
+// v0.80 (advisor R3, owner: "go ahead and fix everything")
+int wp_gains_reopen(wp_record *r, int walking, uint32_t fp_now)
+{
+	if (r->st_gains != WP_STARTED || !walking || fp_now != r->bank_fp)
+		return 0;
+	r->st_gains = WP_TODO;
+	return 1;
 }

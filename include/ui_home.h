@@ -27,7 +27,7 @@ typedef struct ui_home_data {
 	char headline[64];   // "Pudding is on a walk"
 	char route[32], watts[16], training[48], since[16]; // walking
 	char line1[64], line2[64];                          // empty / waiting
-	char goes_back[96];  // "Goes back to Pokémon X (Nate) at walk end" ("" = no line)
+	char goes_back[96];  // "Goes back to Pokémon X (PLAYER) at walk end" ("" = no line)
 	ui_title game;       // origin game (icon)
 	ui_image big[2], small;
 	int animate;         // the big sprite's two frames differ

@@ -132,6 +132,21 @@ static void test_text(void)
     CHECK(pw_text_width("\xC3\xA9") == pw_font_glyphs[PW_FONT_E_ACUTE].w, "width e-acute");
     CHECK(pw_text_width("\xC3\x89") == pw_font_glyphs[PW_FONT_CE_ACUTE].w, "width E-acute");
     CHECK(pw_text_width("\xE2\x82\xAC") == glyph_w('?'), "unknown char drawn as ?");
+    // v0.81 (names step 1, owner: "Go 12"): the new glyphs, aliases, and what stays '?'
+    CHECK(PW_FONT_COUNT == 144, "font count");
+    for (int i = 0; i < PW_FONT_COUNT - PW_FONT_E_ACUTE; i++)
+        CHECK(pw_glyph_for(pw_font_extra_cp[i]) == PW_FONT_E_ACUTE + i, "extra glyph %d", i);
+    CHECK(pw_glyph_for(0xE9) == PW_FONT_E_ACUTE && pw_glyph_for(0xC9) == PW_FONT_CE_ACUTE, "e-acute index kept");
+    CHECK(pw_text_width("\xC3\x9F") == pw_font_glyphs[pw_glyph_for(0xDF)].w, "width sharp s");
+    CHECK(pw_text_width("\xE2\x99\x82") == pw_font_glyphs[pw_glyph_for(0x2642)].w, "width male");
+    CHECK(pw_text_width("\xE2\x80\x99") == glyph_w('\''), "U+2019 drawn as '");
+    CHECK(pw_text_width("\xE2\x80\xA4") == glyph_w('.'), "U+2024 drawn as .");
+    CHECK(pw_glyph_for(0xE08E) == pw_glyph_for(0x2642) && pw_glyph_for(0xE08F) == pw_glyph_for(0x2640), "E08E/E08F");
+    CHECK(pw_glyph_for(0x3042) == -1 && pw_glyph_for(0x0A) == -1 && pw_glyph_for(0xAC00) == -1, "no glyph");
+    CHECK(pw_text_width("\xC1\xA1") == glyph_w('?'), "overlong 2-byte form stays ?");
+    CHECK(pw_text_width("\xE0\x81\xA1") == glyph_w('?'), "overlong 3-byte form stays ?");
+    CHECK(pw_text_width("\xC3") == glyph_w('?'), "cut sequence stays ?");
+    CHECK(pw_text_width("\xE3\x81\x82") == glyph_w('?'), "kana stays ?");
 
     // font sanity: every glyph 1..8 wide, nothing outside its width
     for (int g = 0; g < PW_FONT_COUNT; g++) {

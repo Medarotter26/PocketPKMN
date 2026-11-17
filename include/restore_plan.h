@@ -9,6 +9,8 @@
 #define RP_CHECKED_FROM  0x8C80  // the blocks that hold the checksum table (0x8CB0) and the data it covers
 #define RP_CHECKED_TO    0x8F00
 #define RP_UNIQUE_ID     0x0083  // the walker's unique ID, 0x28 bytes
+#define RP_NAME_FROM     0x1200  // v0.75: the blocks with the trainer-name picture (0x1250-0x138F): never restored
+#define RP_NAME_TO       0x1400
 #define RP_MAX_CHUNKS    ((RP_EEPROM_SIZE - RP_FROM) / RP_CHUNK)
 
 enum {
@@ -33,8 +35,10 @@ int rp_checked_block_ok(const uint8_t *ee);
 // Covered range of a table that passes (for the log / tests): lowest address and one past the highest.
 void rp_checked_range(const uint8_t *ee, unsigned *lo, unsigned *hi);
 
-// 1 when the 128-byte block at a may be restored: menu pictures 0x0280-0x8C7F, event log 0xCF00-0xD47F, peers
-// 0xDC00-0xFFFF (v0.70). Never the walk areas, the team data or the checked block (see restore_plan.c).
+// 1 when the 128-byte block at a may be restored: menu pictures 0x0280-0x8C7F except 0x1200-0x13FF (the
+// trainer-name picture, v0.75), event log 0xCF00-0xD47F, peers 0xDC00-0xFFFF (v0.70). Never the walk areas, the team
+// data or the checked block (see restore_plan.c). v0.80 (advisor B3): so a Set up write cut off inside 0x1200-0x13FF
+// can only be repaired by running Set up again, not by Restore.
 int rp_restorable(unsigned a);
 
 // file = the backup, walker = the walker as just read (two full reads that agreed).

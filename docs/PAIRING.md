@@ -193,8 +193,14 @@ same table as sound data (16 sounds) — that fits the contiguous layout; Dmitry
 0x36F2 is the same bytes. Either way:
 
 - HGSS writes 0x8CB0–0x8ECF as part of the fixed image blob; it never writes 0x8ED0–0x8EFF.
-- A master must write this range **exactly as a real walker has it** (or not at all). Any change to a
-  descriptor or covered byte may hang the walker [Dmitry].
+- A master must write this range **exactly as a real walker has it** (or not at all). Dmitry's write-up says a
+  change to a descriptor or covered byte may hang the walker. **Corrected 2026-11-16:** the complete matching
+  decompilation of the walker firmware (github.com/lumirth/pw, CC0) has one reader of this block,
+  `BeepLoadScore()` in `src/application/pw_buzzer.c`: on a wrong sum, or a last note that is not an end/repeat
+  marker, it sets `g_note = 0` and returns (that sound is skipped); an over-long entry keeps the previous sound. No
+  loop can hang - a bad block means **no sound, not a frozen walker** (working session's reading, confirmed by the
+  advisor; the decompilation's "matching build" is that project's own claim). PocketPKMN still never changes a
+  valid block (Restore rules, v0.68-v0.70).
 
 The image area 0x0280–0x8EFF differs between two walkers only at 0x1254–0x1285 and 0x12F4–0x1327, i.e. the
 trainer-name image (0x1250, 80×16) [dumps]. Everything else is the same fixed data (per game language).

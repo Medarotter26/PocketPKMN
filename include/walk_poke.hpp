@@ -18,6 +18,18 @@ namespace walkerbox
     // nothing is left.
     std::string walkerNickname(const pksm::PKX& pk);
 
+    // v0.81 (names step 1, owner: "Go 12"): the text for the name PICTURE. Keeps every character
+    // the WalkerBox font draws (printable ASCII, accented Latin letters, oe/OE, sharp s, gender signs), cut
+    // to 10 characters like walkerNickname. If walkerNickname would fall back to the English species name
+    // (nothing ASCII in the nickname, e.g. Japanese / Korean / Chinese), it returns exactly walkerNickname.
+    // The stored Gen 4 text (wbx_text_pack) keeps walkerNickname.
+    std::string walkerNicknamePicture(const pksm::PKX& pk);
+
+    // The same two rules on strings (PC tests): nickname as PKSM-Core gives it (UTF-8) + the species'
+    // English name.
+    std::string walkerNicknameText(const std::string& nickname, const std::string& englishSpecies);
+    std::string walkerNicknamePictureText(const std::string& nickname, const std::string& englishSpecies);
+
     // --- W4: what a walk gives the Pokemon when it comes back ------------------------------------------------
     // Rules (pret/pokeheartgold overlay 112, return handler; RESUME "W4 research"):
     //  - EXP: 1 per step, at most up to the start of the next level (no move learning, no evolution); nothing

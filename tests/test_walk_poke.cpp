@@ -2,6 +2,10 @@
 // Usage: test_walk_poke <save>...  (.sav Gen 1/2, .gbavc Gen 3 container, .main Gen 6)
 // Checks per Pokemon: summary species / level / moves / item match the PKX, nickname text decodes to the
 // walker nickname, name image fits, eggs are refused; the result composes with the test route.
+// v0.81 (names step 1, owner: "Go 12"): --names <romfs/i18n/> <names_eng_today.txt> also renders every
+// species name of eng/fre/ger/spa/ita (species.txt, species2.txt, species4.txt) as the walker name picture: no
+// character of those languages may be missing, every picture fits 80x16, the stored text stays the ASCII rule,
+// and every English name whose picture text did not change gives the same picture bytes as before v0.81.
 #include "gbavc.hpp"
 #include "pw_proto.h"
 #include "sav/Sav.hpp"
@@ -11,8 +15,11 @@
 
 #include <cstdio>
 #include <cstring>
+#include <map>
 #include <memory>
 #include <vector>
+
+#include "pw_image.h"
 
 static int failures = 0;
 #define CHECK(c) do { if (!(c)) { printf("  FAIL line %d: %s\n", __LINE__, #c); failures++; } } while (0)
@@ -177,8 +184,13 @@ static void testSave(const char* path)
         CHECK(!want.empty());
         CHECK(wp.nickname[10] == 0xFFFF);
         u8 img[WBX_NAME_IMG_SIZE];
-        CHECK(wbx_label_image(want.c_str(), 80, 16, img) == 0);
+        // v0.81 (names step 1, owner: "Go 12"): the picture has its own text (accents, signs)
+        std::string pic = walkerbox::walkerNicknamePicture(*pk);
+        CHECK(!pic.empty());
+        CHECK(wbx_label_image(pic.c_str(), 80, 16, img) == 0);
         CHECK(memcmp(img, wp.name_img, sizeof img) == 0);
+        if (pic != want)
+            printf("  picture \"%s\" / stored text \"%s\"\n", pic.c_str(), want.c_str());
         placeholders += !fromPack;
         testGains(*pk, gen);
         u8 walk[WBX_WALK_SIZE];
@@ -196,12 +208,151 @@ static void testSave(const char* path)
     CHECK(placeholders == 0);
 }
 
+// ---- v0.81 (names step 1, owner: "Go 12") ---------------------------------------------------------
+static std::vector<std::string> readLines(const std::string& path)
+{
+    std::vector<std::string> v;
+    FILE* f = fopen(path.c_str(), "rb");
+    if (!f)
+        return v;
+    char buf[512];
+    while (fgets(buf, sizeof buf, f)) {
+        std::string s(buf);
+        while (!s.empty() && (s.back() == '\n' || s.back() == '\r'))
+            s.pop_back();
+        v.push_back(s);
+    }
+    fclose(f);
+    return v;
+}
+
+static u32 fnv1a(const u8* p, size_t n)
+{
+    u32 h = 0x811C9DC5u;
+    for (size_t i = 0; i < n; i++)
+        h = (h ^ p[i]) * 0x01000193u;
+    return h;
+}
+
+// name without trailing spaces, cut to 12 characters (code points; v0.81, owner: "Go 12" - was 10) - what the
+// picture must show
+static std::string expectedPicture(const std::string& name)
+{
+    std::string s = name;
+    while (!s.empty() && s.back() == ' ')
+        s.pop_back();
+    size_t chars = 0;
+    for (size_t i = 0; i < s.size(); i++)
+        if (((unsigned char)s[i] & 0xC0) != 0x80 && chars++ == 12)
+            return s.substr(0, i);
+    return s;
+}
+
+static void testNames(const std::string& dir, const char* goldenPath)
+{
+    std::vector<std::string> eng = readLines(dir + "eng/species.txt");
+    CHECK(eng.size() > 800);
+    std::map<int, u32> golden;
+    for (const std::string& l : readLines(goldenPath)) {
+        int n;
+        unsigned h;
+        if (!l.empty() && l[0] != ';' && sscanf(l.c_str(), "%d %x", &n, &h) == 2)
+            golden[n] = h;
+    }
+    CHECK(golden.size() == eng.size() - 1);
+    const char* langs[] = {"eng", "fre", "ger", "spa", "ita"};
+    const char* files[] = {"species.txt", "species2.txt", "species4.txt"};
+    int total = 0, missing = 0, wide = 0, cut = 0, same = 0, changed = 0, widest = 0;
+    std::string widestName;
+    for (const char* lang : langs)
+        for (const char* file : files) {
+            std::vector<std::string> v = readLines(dir + lang + "/" + file);
+            if (v.empty() && strcmp(lang, "eng") == 0 && strcmp(file, "species.txt") != 0)
+                continue; // eng has species.txt only
+            CHECK(v.size() > 250);
+            for (size_t s = 1; s < v.size(); s++) {
+                const std::string& name = v[s];
+                if (name.empty())
+                    continue;
+                const std::string& engName = s < eng.size() ? eng[s] : name;
+                std::string pic  = walkerbox::walkerNicknamePictureText(name, engName);
+                std::string text = walkerbox::walkerNicknameText(name, engName);
+                total++;
+                // no character of these languages may be left out of the picture
+                if (pic != expectedPicture(name)) {
+                    missing++;
+                    printf("  %s/%s #%zu \"%s\": picture \"%s\" (character missing)\n", lang, file, s, name.c_str(),
+                           pic.c_str());
+                }
+                std::string trimmed = name;
+                while (!trimmed.empty() && trimmed.back() == ' ')
+                    trimmed.pop_back();
+                if (expectedPicture(name) != trimmed)
+                    cut++; // longer than 12 characters: cut
+                // the stored Gen 4 text: the ASCII rule, nothing else
+                uint16_t t[11];
+                wbx_text_pack(text.c_str(), t, 11, 1);
+                char back[16];
+                pw_text_to_ascii(t, 11, back, sizeof back);
+                CHECK(text == back);
+                // the picture: 80x16 with the shadow, nothing on the top row (the accent zone stays inside)
+                u8 img[WBX_NAME_IMG_SIZE], sh[80 * 16];
+                if (wbx_label_image(pic.c_str(), 80, 16, img) != 0) {
+                    wide++;
+                    printf("  %s/%s #%zu \"%s\": wider than 80 px (%d)\n", lang, file, s, pic.c_str(),
+                           pw_text_width(pic.c_str()));
+                }
+                if (pw_text_width(pic.c_str()) > widest) {
+                    widest = pw_text_width(pic.c_str());
+                    widestName = pic;
+                }
+                pw_img_decode(img, 80, 16, sh);
+                for (int x = 0; x < 80; x++)
+                    CHECK(sh[x] == 0);
+                // English: unchanged picture text -> the exact bytes of before v0.81
+                if (strcmp(lang, "eng") == 0 && strcmp(file, "species.txt") == 0) {
+                    if (pic == text) {
+                        same++;
+                        CHECK(golden.count((int)s) && golden[(int)s] == fnv1a(img, sizeof img));
+                    } else {
+                        changed++;
+                        printf("  English #%zu: picture \"%s\" (stored text \"%s\")\n", s, pic.c_str(), text.c_str());
+                    }
+                }
+            }
+        }
+    printf("names: %d species names rendered, %d with a missing character, %d wider than 80 px, %d cut at 12 "
+           "characters; widest %d px (\"%s\"); English: %d pictures byte-identical to before, %d changed (signs, "
+           "punctuation, accents, 11-12 characters)\n", total, missing, wide, cut, widest, widestName.c_str(), same,
+           changed);
+    CHECK(missing == 0);
+    CHECK(wide == 0);
+    // Japanese / other scripts: the fallback is exactly the stored text (the English name, ASCII)
+    CHECK(walkerbox::walkerNicknamePictureText("\xE3\x83\x94\xE3\x82\xAB\xE3\x83\x81\xE3\x83\xA5\xE3\x82\xA6",
+                                               "Pikachu") == "Pikachu");
+    CHECK(walkerbox::walkerNicknamePictureText("\xEB\x8B\x88\xEB\x93\x9C\xEB\x9F\xB0\xE2\x99\x82", "Nidoran\xE2\x99\x82")
+          == "Nidoran");
+    CHECK(walkerbox::walkerNicknamePictureText("\xE2\x99\x82\xE2\x99\x80", "Nidoran\xE2\x99\x82") == "Nidoran");
+    // Gen 5+ signs as PKSM-Core gives them (U+E08E / U+E08F) are kept and drawn as the signs
+    CHECK(walkerbox::walkerNicknamePictureText("Nidoran\xEE\x82\x8E", "Nidoran\xE2\x99\x82") == "Nidoran\xEE\x82\x8E");
+    u8 a[WBX_NAME_IMG_SIZE], b[WBX_NAME_IMG_SIZE];
+    wbx_label_image("Nidoran\xEE\x82\x8E", 80, 16, a);
+    wbx_label_image("Nidoran\xE2\x99\x82", 80, 16, b);
+    CHECK(memcmp(a, b, sizeof a) == 0);
+}
+
 int main(int argc, char** argv)
 {
     i18n::init(pksm::Language::ENG);
     wbx_route_test(&g_route);
-    for (int i = 1; i < argc; i++)
+    for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "--names") && i + 2 < argc) {
+            testNames(argv[i + 1], argv[i + 2]);
+            i += 2;
+            continue;
+        }
         testSave(argv[i]);
+    }
     printf("W4 gains: %d walks applied and checked\n", g_gainChecks);
     printf("%s (%d failure(s))\n", failures ? "FAILED" : "ALL WALK POKEMON CHECKS PASSED", failures);
     return failures != 0;

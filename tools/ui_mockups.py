@@ -338,7 +338,7 @@ def home():
         label(d, cx, cy + 9, v, 10, TEXT, "Bold")
     info_box(d, 300, 50, 84, 42, "Walking since", "11/18/26")  # round 7
     game_icon(d, 104, 120, 20)
-    label(d, 130, 130, "Goes back to Pokémon X (Nate) at walk end", 9, SUB, "Medium", "lm")
+    label(d, 130, 130, "Goes back to Pokémon X (PLAYER) at walk end", 9, SUB, "Medium", "lm")
     panel(d, 8, 154, 384, 80)
     band(d, 8, 154, 384, 20, "Games on this 3DS")
     for i, g in enumerate(["Pokémon Blue", "Pokémon Crystal", "Pokémon X", "Alpha Sapphire"]):
@@ -374,7 +374,7 @@ def home():
     return device(top, bot)
 
 
-def game_select(game="Pokémon X", facts=(("Trainer: Nate", "ID No. 11111"), ("Game card", "Generation 6")),
+def game_select(game="Pokémon X", facts=(("Trainer: PLAYER", "ID No. 11111"), ("Game card", "Generation 6")),
                 popup=False):
     top = background(TOP_W)
     d = ImageDraw.Draw(top, "RGBA")
@@ -434,7 +434,7 @@ def box_view():
     bullet(d, 226, 58, "Nickname: Pudding")
     bullet(d, 226, 80, "Female  ·  Shiny")
     bullet(d, 226, 102, "Dex No. 706")
-    bullet(d, 226, 124, "OT: Nate")
+    bullet(d, 226, 124, "OT: PLAYER")
     bullet(d, 226, 146, "ID No. 11111")
     bullet(d, 226, 168, "From: Pokémon X")
     d.rounded_rectangle(sc(226, 194, 378, 216), radius=4 * S, fill=(255, 236, 228), outline=ACCENT, width=S)
@@ -564,7 +564,7 @@ def pokemon_top(dex, title, gender, info, gauges, evs, training, game, walking=F
     """Top screen of the game box (user: game icons, more bevel, transparency, no empty space)."""
     top = background(TOP_W)
     d = ImageDraw.Draw(top, "RGBA")
-    status_bar(d, TOP_W, f"{game} · Nate")
+    status_bar(d, TOP_W, f"{game} · PLAYER")
     # left: the walker pictures
     panel(d, 8, 22, 188, 212)
     walker_lcd(top, d, 38, 34, dex, "", 2)
@@ -576,7 +576,7 @@ def pokemon_top(dex, title, gender, info, gauges, evs, training, game, walking=F
     label(d, 150, 200, "box icon", 8, SUB, "Medium", "mm")
     game_icon(d, 18, 206, 22)
     label(d, 46, 212, game, 9, TEXT, "Bold", "lm")
-    label(d, 46, 224, "Nate · ID 11111", 8, SUB, "Medium", "lm")
+    label(d, 46, 224, "PLAYER · ID 11111", 8, SUB, "Medium", "lm")
     # right: the Pokemon
     panel(d, 204, 22, 188, 212)
     band(d, 204, 22, 188, 22, title, 12)
@@ -632,7 +632,7 @@ def send():
     status_bar(d, TOP_W, "Send to walker")
     walker_lcd(top, d, 136, 40, 501, "Test Path", 2)  # still centred on the screen
     panel(d, 12, 172, 376, 56)
-    bullet(d, 22, 182, "Oshawott  Lv.12  ·  from Pokémon X (Nate)")
+    bullet(d, 22, 182, "Oshawott  Lv.12  ·  from Pokémon X (PLAYER)")
     bullet(d, 22, 204, "Training: Speed  (+1 EV every 20 steps)")
     bot = background(BOT_W)
     d = ImageDraw.Draw(bot, "RGBA")

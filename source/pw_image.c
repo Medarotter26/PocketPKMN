@@ -44,6 +44,24 @@ void pw_img_decode(const uint8_t *in, int w, int h, uint8_t *shades)
     }
 }
 
+// v0.81 (names step 1, owner: "Go 12"): see include/pw_image.h.
+int pw_glyph_for(uint32_t cp)
+{
+    switch (cp) {
+    case 0x2018: case 0x2019: cp = '\''; break;
+    case 0x2024: cp = '.'; break;
+    case 0xE08E: cp = 0x2642; break;
+    case 0xE08F: cp = 0x2640; break;
+    default: break;
+    }
+    if (cp >= 0x20 && cp <= 0x7E)
+        return (int)(cp - 0x20);
+    for (int i = 0; i < PW_FONT_COUNT - PW_FONT_E_ACUTE; i++)
+        if (pw_font_extra_cp[i] == cp)
+            return PW_FONT_E_ACUTE + i;
+    return -1;
+}
+
 // Next code point from UTF-8 as a glyph index, or -1 for '\n', -2 at the end.
 static int next_glyph(const char **pp)
 {
@@ -70,9 +88,17 @@ static int next_glyph(const char **pp)
         if ((p[i] & 0xC0) != 0x80) { len = i; break; }
     }
     *pp = (const char *)(p + len);
-    if (len == 2 && c == 0xC3) {
-        if (p[1] == 0xA9) return PW_FONT_E_ACUTE;
-        if (p[1] == 0x89) return PW_FONT_CE_ACUTE;
+    // v0.81 (names step 1, owner: "Go 12"): complete 2- and 3-byte sequences are looked up
+    // (was: only C3 A9 / C3 89); overlong forms, cut sequences and 4-byte ones stay '?'.
+    uint32_t cp = 0;
+    if (len == 2 && (c & 0xE0) == 0xC0)
+        cp = ((uint32_t)(c & 0x1F) << 6) | (uint32_t)(p[1] & 0x3F);
+    else if (len == 3 && (c & 0xF0) == 0xE0)
+        cp = ((uint32_t)(c & 0x0F) << 12) | ((uint32_t)(p[1] & 0x3F) << 6) | (uint32_t)(p[2] & 0x3F);
+    if ((len == 2 && cp >= 0x80) || (len == 3 && cp >= 0x800)) {
+        int g = pw_glyph_for(cp);
+        if (g >= 0)
+            return g;
     }
     return '?' - 0x20;
 }

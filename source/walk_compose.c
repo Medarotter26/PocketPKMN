@@ -73,6 +73,7 @@ void wbx_walk_extract(const uint8_t walk[WBX_WALK_SIZE], wbx_walk_poke *poke, wb
 	const uint8_t *ri = walk + WBX_WO_ROUTE_INFO;
 	memcpy(poke->summary, ri + RI_SUMMARY, 16);
 	get_text(ri + RI_NICKNAME, poke->nickname, 11);
+	poke->display_name[0] = 0; // v0.82: only the stored text is on the walker
 	poke->friendship = ri[RI_FRIENDSHIP];
 	route->image_index = ri[RI_IMAGE_IDX];
 	get_text(ri + RI_ROUTE_NAME, route->name, 21);

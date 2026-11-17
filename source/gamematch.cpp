@@ -294,6 +294,7 @@ namespace walkerbox
         constexpr uint32_t G7_USUM = 0x6CC00;
 
         uint32_t g7BoxStart(uint32_t length) { return length == G7_SM ? 0x4E00 : 0x5200; }
+        uint32_t g7SigStart(uint32_t length) { return length == G7_SM ? 0x6BB00 : 0x6C100; }
     }
 
     bool gameMatchFinish7(pksm::Sav& sav, const uint8_t* before, uint32_t length, int editedBox, std::string& note)
@@ -318,7 +319,10 @@ namespace walkerbox
         uint32_t from  = g7BoxStart(length) + (uint32_t)editedBox * G7_PER * G7_SLOT;
         uint32_t to    = from + G7_PER * G7_SLOT;
         uint32_t table = length - 0x200;       // block-checksum table (to the end of the save)
-        uint32_t sig   = table - 0x100;        // the signature over that table, 0x80 bytes
+        // the signature over that table, 0x80 bytes, 0x100 into the memecrypto block (id 36): 0x6BB00 on Sun/Moon
+        // (= table - 0x100), 0x6C100 on Ultra Sun/Ultra Moon (= table - 0x900; two more blocks follow it there).
+        // PKSM-Core SavSUMO/SavUSUM::resign memecryptoOffset; PKHeX MemeCrypto writes the same places.
+        uint32_t sig   = g7SigStart(length);
         u8* d = sav.rawData().get();
         // everything but that box as it was; then PKSM-Core's checksums + signature
         for (uint32_t i = 0; i < length; i++)
@@ -584,7 +588,7 @@ namespace walkerbox
     {
         const bool g2 = sav.generation() == pksm::Generation::TWO;
         const bool g6 = sav.generation() == pksm::Generation::SIX && (length == G6_XY || length == G6_ORAS);
-        // v0.56: Gen 7 like Gen 6 (the bag, the block table), plus the 0x80-byte signature 0x100 before the table
+        // v0.56: Gen 7 like Gen 6 (the bag, the block table), plus the 0x80-byte signature (g7SigStart)
         const bool g7 = sav.generation() == pksm::Generation::SEVEN && (length == G7_SM || length == G7_USUM);
         // v0.62: Diamond / Pearl / Platinum - the bag is in the CURRENT general block, edited in place (as PKSM
         // does), plus that block's CRC-16 (0xC0FE D/P, 0xCF2A Pt, in the half getGBO() names)
@@ -645,7 +649,7 @@ namespace walkerbox
             if (g2 && i >= 0x4000)
                 d[i] = before[i]; // box storage (PKSM-Core recopies the open box) and the backup copy's checksum: the
                                   // game changes neither when it stores an item
-            else if (g7 && i >= length - 0x300 && i < length - 0x280)
+            else if (g7 && i >= g7SigStart(length) && i < g7SigStart(length) + 0x80)
                 continue; // Gen 7 signature over the block table (re-made by PKSM-Core like the game's)
             else if ((g2 && i >= 0x2000 && i < 0x4000) || ((g6 || g7) && i >= length - 0x200) ||
                      (g4 && i >= g4crc && i < g4crc + 2))
@@ -655,7 +659,7 @@ namespace walkerbox
             if (where.size() < 80)
             {
                 char b[16];
-                snprintf(b, sizeof(b), " %x", i);
+                snprintf(b, sizeof(b), " %x", (unsigned)i); // v0.81: uint32_t is long on the 3DS (format warning)
                 where += b;
             }
         }

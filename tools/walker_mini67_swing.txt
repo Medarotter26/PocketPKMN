@@ -1,0 +1,20 @@
+# Gen 6/7 mini frame 2 (tools/walker_mini67_swing.py). Walker grid, faces right.
+# dex base [cut] | part: box x0 y0 x1 y1, base point px py, tip move in px | ...
+#   A part reaching sideways from its base bends up (-) / down (+); one reaching up/down bends left (-) / right (+).
+# base: squat C (rows above C dip 1 px, feet stay) / bob (all 1 px down) / rise (all 1 px up) / none
+# Motions follow what the stock Gen 1-5 minis of the same body type do (round 5, PokeAPI shape groups):
+#  quadruped: dip, feet stay; ears/head-top stay up or tilt; tail swings/curls.  upright: dip; arm swings; tail tip.
+#  bird: wings move (standing birds: wing tips flare out / lift).  head only: rise 1 or squash; spikes jiggle.
+#  fins: flippers / tail fin move.  serpent: head sways, tail tip swings.
+650 squat 20 | 8 15 12 19 12 17 -2 | 21 11 24 15 21 13 -1   # Chespin (upright): tail flicks up, arm lifts
+653 squat 20 | 19 4 24 9 20 10 1 | 8 8 13 12 13 10 -1       # Fennekin (quadruped): both ears flick
+656 squat 20 | 21 17 25 21 21 19 -2 | 6 9 10 14 10 12 -1    # Froakie (quadruped): hand lifts, frubbles swing
+661 squat 21 | 7 8 11 13 11 11 -2 | 8 15 13 19 13 15 -2     # Fletchling (bird): tail lifts, wing tip lifts
+667 squat 20 | 5 6 12 13 12 13 -2                           # Litleo (quadruped): tail swings
+700 squat 20 | 4 12 11 17 11 15 -2 | 21 0 26 5 23 5 1       # Sylveon (quadruped): feeler and head ribbon swing
+707 rise | 6 15 11 23 9 15 2 | 23 7 29 11 23 9 -1           # Klefki (head only, floats): rises, keys swing
+722 squat 21 | 8 12 12 19 10 12 -2                          # Rowlet (bird): wing swings out from the side
+725 squat 21 | 3 7 10 12 10 12 -2 | 21 3 23 6 22 7 1        # Litten (quadruped): tail tip + ear flick
+728 squat 20 | 8 18 12 21 12 19 -1 | 21 18 25 21 21 19 -1   # Popplio (fins): both flippers lift
+744 squat 20 | 6 2 12 10 9 10 -2                            # Rockruff (quadruped): tail wags
+778 squat 21 | 16 1 22 8 19 9 2 | 7 9 14 13 14 12 -2        # Mimikyu (serpent): head tip sways, tail stick swings

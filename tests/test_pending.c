@@ -6,10 +6,17 @@
 //     started again (load + settle + run the rest): no catch or item is ever delivered twice; with no stop every one
 //     is delivered once; a stop between "started" and the delivery loses at most that one step.
 //  4. steps that wait for their game stay "to do" and the file stays until they are done.
+//  5. v0.80 (advisor R1-R4): a "started" mark that could not be saved is not left in
+//     memory (R1, also wp_save's leftover .tmp); a record without the walked Pokemon's entry waits instead of
+//     finishing its steps (R2); a gains step cut before the bank write runs again, only when the slot is unchanged
+//     and still walking (R3, also checked at every stop point in 3); a catch whose bank save failed (the slot read
+//     back empty) waits instead of being finished (R4 - a model of storage_deliver_catches, which is not built on
+//     the PC).
 #include "walk_pending.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 static int fails;
@@ -116,6 +123,94 @@ static int run(wp_record *r)
 	return 0;
 }
 
+// --- 5: v0.80 (advisor R1-R4) ---------------------------------------------------------------------------------------
+static int fail_saves;    // the next n saves fail (R1)
+static int bank_readable; // R2: storage_walk_entry / the fingerprint can be read
+static int bank_save_fails; // R4: the next n catch bank saves fail (the slot is read back empty)
+
+static int save_cb(void *ctx)
+{
+	if (fail_saves > 0) {
+		fail_saves--;
+		return -1;
+	}
+	return wp_save(base, (wp_record *)ctx);
+}
+
+// storage_deliver_catches' end of one catch, as storage.cpp does it: later = 1 = nothing stored, try again
+static int store_catch(int i)
+{
+#ifdef V073_R4
+	if (bank_save_fails > 0) { // v0.73: "could not be saved" - finished
+		bank_save_fails--;
+		return 0;
+	}
+#else
+	if (bank_save_fails > 0) { // v0.80 (advisor R4): the slot was read back empty - tried again later
+		bank_save_fails--;
+		return 1;
+	}
+#endif
+	world_catch[i]++;
+	return 0;
+}
+
+// main.c's pending_run (v0.80) without stops: wp_begin_step for every mark, the entry check (R2), storage's
+// later / finished (R4). An empty entry reaching "storage" is "never" (v0.73's -2): everything marked done.
+static void run_v078(wp_record *r)
+{
+	if (!wp_entry_ok(r)) {
+		if (!bank_readable)
+			return; // everything waits
+		for (int i = 0; i < WP_ENTRY_SIZE; i++)
+			r->entry[i] = (uint8_t)(i * 7 + 1); // pend_refill_entry
+		wp_save(base, r);
+	}
+	if (r->st_watts == WP_TODO && wp_begin_step(&r->st_watts, save_cb, r)) {
+		world_watts++;
+		r->st_watts = WP_DONE;
+		wp_save(base, r);
+	}
+	if (r->st_gains == WP_TODO && wp_begin_step(&r->st_gains, save_cb, r)) {
+		world_gains++;
+		r->st_gains = WP_DONE;
+		wp_save(base, r);
+	}
+	int never = !r->entry[0];
+	for (int i = 0; i < r->ncatch; i++) {
+		if (r->st_catch[i] != WP_TODO)
+			continue;
+		if (never) {
+			r->st_catch[i] = WP_DONE;
+			continue;
+		}
+		if (!wp_begin_step(&r->st_catch[i], save_cb, r))
+			break;
+		r->st_catch[i] = store_catch(i) ? WP_TODO : WP_DONE;
+		wp_save(base, r);
+	}
+	for (int i = 0; i < r->nitem; i++) {
+		if (r->st_item[i] != WP_TODO)
+			continue;
+		if (never) {
+			r->st_item[i] = WP_DONE;
+			continue;
+		}
+		if (!wp_begin_step(&r->st_item[i], save_cb, r))
+			break;
+		world_item[i]++;
+		r->st_item[i] = WP_DONE;
+		wp_save(base, r);
+	}
+	if (r->st_return == WP_TODO && wp_begin_step(&r->st_return, save_cb, r)) {
+		world_return++;
+		r->st_return = WP_DONE;
+		wp_save(base, r);
+	}
+	if (wp_all_done(r))
+		wp_remove(base);
+}
+
 int main(void)
 {
 	snprintf(base, sizeof(base), "/tmp/pocketpkmn_pending_%d.bin", (int)getpid());
@@ -192,6 +287,9 @@ int main(void)
 		int target = stop_at;
 		stop_at = -1;
 		if (wp_load(base, &r)) {
+			// v0.80 (advisor R3): as pend_load - the bank slot is unchanged and still walking exactly when the
+			// gains did not reach the bank (world_gains == 0); after they did, its fingerprint is a new one
+			wp_gains_reopen(&r, world_gains == 0, world_gains ? r.bank_fp ^ 1u : r.bank_fp);
 			wp_settle_started(&r);
 			wp_save(base, &r);
 			run(&r);
@@ -208,6 +306,7 @@ int main(void)
 			lost_here += world_item[i] == 0;
 		}
 		CHECK(world_watts <= 1 && world_gains <= 1 && world_return <= 1, "stop at %d: a step ran twice", stop_at);
+		CHECK(world_gains == 1, "stop at %d: R3: the gains were lost", stop_at); // v0.80 (advisor R3)
 		lost_here += !world_watts + !world_gains + !world_return;
 		CHECK(lost_here <= 1, "stop at %d: %d steps lost", stop_at, lost_here);
 		lost += lost_here;
@@ -244,6 +343,101 @@ int main(void)
 		CHECK(!wp_load(base, &r), "game here later: the file is left over");
 		CHECK(world_catch[0] == 1 && world_catch[1] == 1 && world_item[0] == 1 && world_item[2] == 1 &&
 		      world_gains == 1 && world_watts == 1, "game here later: not delivered once each");
+	}
+
+	// 5. v0.80 (advisor R1-R4)
+	{
+		// R1: the watts' "started" mark cannot be saved; the gains' mark (the next save) can; then a stop.
+		wp_record r;
+		sample(&r, 1, 0);
+		wp_remove(base);
+		wp_save(base, &r);
+		fail_saves = 1;
+		CHECK(!wp_begin_step(&r.st_watts, save_cb, &r), "R1: a mark that was not saved reported as saved");
+		CHECK(wp_begin_step(&r.st_gains, save_cb, &r), "R1: the next mark not saved");
+		// stop here; start again
+		CHECK(wp_load(base, &r), "R1: no file");
+		wp_settle_started(&r);
+		CHECK(r.st_watts == WP_TODO, "R1: the watts step was never run but is settled as done (lost)");
+		CHECK(r.st_gains == WP_DONE, "R1: the gains step (started) must be settled as done");
+
+		// R1, wp_save: the save fails at its rename (.bak is a non-empty folder): no newer copy may be left behind
+		sample(&r, 1, 0);
+		wp_remove(base);
+		wp_save(base, &r);
+		char inner[200];
+		snprintf(inner, sizeof(inner), "%s/x", bak);
+		mkdir(bak, 0700);
+		FILE *f = fopen(inner, "wb");
+		fclose(f);
+		r.st_watts = WP_STARTED;
+		CHECK(wp_save(base, &r) != 0, "R1: the save with a blocked rename did not fail");
+		wp_record got;
+		CHECK(wp_load(base, &got) && got.st_watts == WP_TODO,
+		      "R1: a failed save left its newer copy (.tmp) behind - loaded as \"started\"");
+		remove(inner);
+		rmdir(bak);
+		wp_remove(base);
+	}
+	{
+		// R2: the bank could not be read at walk end - the record has no entry
+		memset(world_catch, 0, sizeof(world_catch));
+		memset(world_item, 0, sizeof(world_item));
+		world_watts = world_gains = world_return = 0;
+		wp_record r;
+		sample(&r, 2, 2);
+		memset(r.entry, 0, sizeof(r.entry));
+		wp_remove(base);
+		wp_save(base, &r);
+		bank_readable = 0;
+		run_v078(&r);
+		CHECK(wp_load(base, &r), "R2: the file is gone although the bank could not be read");
+		CHECK(world_watts + world_gains + world_catch[0] + world_catch[1] + world_item[0] + world_item[1] == 0 &&
+		      r.st_catch[0] == WP_TODO && r.st_item[1] == WP_TODO && r.st_watts == WP_TODO,
+		      "R2: steps finished without the entry");
+		bank_readable = 1; // the next start
+		run_v078(&r);
+		CHECK(!wp_load(base, &r), "R2: the file is left over");
+		CHECK(world_watts == 1 && world_gains == 1 && world_catch[0] == 1 && world_catch[1] == 1 && world_item[0] == 1 &&
+		      world_item[1] == 1 && world_return == 1, "R2: not delivered once each after the entry was read again");
+	}
+	{
+		// R3: cut between the gains' "started" mark and the bank write
+		wp_record r;
+		sample(&r, 0, 0);
+		r.st_watts = WP_DONE;
+		r.st_gains = WP_STARTED;
+		wp_record c = r;
+		CHECK(wp_gains_reopen(&c, 1, c.bank_fp) == 1 && c.st_gains == WP_TODO,
+		      "R3: unchanged + still walking: the gains step is not run again (gains lost)");
+		c = r;
+		CHECK(wp_gains_reopen(&c, 1, c.bank_fp ^ 0x10u) == 0 && wp_settle_started(&c) == 1 && c.st_gains == WP_DONE,
+		      "R3: changed fingerprint: must be settled (no doubles)");
+		c = r;
+		CHECK(wp_gains_reopen(&c, 0, c.bank_fp) == 0 && c.st_gains == WP_STARTED,
+		      "R3: not walking any more: must be settled (no doubles)");
+		c = r;
+		c.st_gains = WP_DONE;
+		CHECK(wp_gains_reopen(&c, 1, c.bank_fp) == 0 && c.st_gains == WP_DONE, "R3: a done step was reopened");
+	}
+	{
+		// R4: the bank save of catch 0 fails (the slot reads back empty): it waits; next time it is made, once
+		memset(world_catch, 0, sizeof(world_catch));
+		memset(world_item, 0, sizeof(world_item));
+		world_watts = world_gains = world_return = 0;
+		wp_record r;
+		sample(&r, 2, 0);
+		r.entry[0] = 2; // an entry (its generation byte)
+		wp_remove(base);
+		wp_save(base, &r);
+		bank_readable = 1;
+		bank_save_fails = 1;
+		run_v078(&r);
+		CHECK(world_catch[0] == 0 && world_catch[1] == 1, "R4: setup");
+		CHECK(r.st_catch[0] == WP_TODO, "R4: a catch that was not stored is finished (lost)");
+		run_v078(&r);
+		CHECK(world_catch[0] == 1 && world_catch[1] == 1 && !wp_load(base, &r), "R4: not delivered once each later");
+		wp_remove(base);
 	}
 
 	// a "maybe ended" walk is never all done (nothing is delivered before it is confirmed)

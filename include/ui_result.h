@@ -13,7 +13,7 @@ extern "C" {
 
 typedef struct ui_result_info {
 	int ok;                 // the walk ended (else the text view is shown as before)
-	char nick[16];
+	char nick[48]; // v0.82: the display name (UTF-8, up to 12 characters) - was 16
 	u8 sprite[WBX_SMALL_SIZE + WBX_LARGE_SIZE]; // the walking Pokemon's walker sprite (from the walk data)
 	unsigned watts, steps;
 	int gains;              // 1 = the fields below are set (it went back into PocketPKMN's slot)

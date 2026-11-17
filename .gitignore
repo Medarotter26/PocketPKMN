@@ -12,6 +12,8 @@ __pycache__/
 *.gb
 *.gbc
 *.3ds
+*.cci
+*.cxi
 *.sav
 *.main
 *.gbavc

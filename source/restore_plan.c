@@ -1,9 +1,9 @@
 // Walker -> Restore plan (v0.68, review addendum finding B). See include/restore_plan.h.
 //
-// Why the checksummed block is handled apart: the walker's firmware checks the 16 sums of the table at 0x8CB0
-// at random times and hangs if one is wrong (dmitry.gr Pokewalker write-up, function 0x36F2; docs/PAIRING.md
-// section 5). The table and the data it covers sit in four separate 128-byte writes, so no order makes a change
-// of that block safe against a cut. It is therefore never changed on a walker whose own block is valid (all real
+// Why the checksummed block is handled apart: the 16 sums of the table at 0x8CB0 cover the walker's sound data.
+// dmitry.gr's write-up said a wrong sum hangs the walker; the firmware decompilation (lumirth/pw, BeepLoadScore in
+// pw_buzzer.c) shows it only skips that sound (v0.80, advisor A1; docs/PAIRING.md section 5). The table and the
+// data it covers sit in four separate 128-byte writes, so no order makes a change of that block safe against a cut. It is therefore never changed on a walker whose own block is valid (all real
 // walkers seen so far have byte-identical blocks), and only rewritten to repair a walker whose block is already
 // broken - where a cut leaves it no worse than before.
 #include "restore_plan.h"
@@ -54,8 +54,15 @@ void rp_checked_range(const uint8_t *ee, unsigned *lo, unsigned *hi)
 // Never: the checked block 0x8C80-0x8EFF (only the repair below), route + walking Pokemon 0x8F00-0xB7FF,
 // special route / event Pokemon and item 0xB800-0xCBFF, team data 0xCC00-0xCE7F, watts copy + catches + items of the
 // walk 0xCE80-0xCEFF, walk-start staging 0xD480-0xDBFF.
+// v0.75 (advisor's review, owner: "Yes to both"): also never the blocks 0x1200-0x13FF - they hold the trainer-name
+// picture (0x1250-0x138F, 80x16), so an old backup could put an old trainer name back on the walker's screen. The
+// other pictures in those blocks (person icon 0x1210, route icon 0x1390, "Steps" frame 0x13D0) are the same on
+// every walker of one language. (The advisor proposed 0x1200-0x137F; the picture ends at 0x138F, so the 0x1380
+// block is left out too - the same blocks Set up writes for a new name.)
 int rp_restorable(unsigned a)
 {
+	if (a >= RP_NAME_FROM && a < RP_NAME_TO)
+		return 0;
 	return (a >= RP_FROM && a < RP_CHECKED_FROM) || (a >= 0xCF00 && a < 0xD480) || (a >= 0xDC00 && a < RP_EEPROM_SIZE);
 }
 

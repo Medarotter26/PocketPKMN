@@ -34,6 +34,11 @@ typedef struct wbx_walk_poke {
 	uint8_t friendship;
 	uint8_t sprite[WBX_SMALL_SIZE + WBX_LARGE_SIZE];
 	uint8_t name_img[WBX_NAME_IMG_SIZE];
+	// v0.82 (owner: Type: Null "shows correctly on the walker, but on the Pokemon Info screen it does not ... on all
+	// 3DS screens"): the name for the app's own screens, UTF-8, as the walker's picture shows it (accents, signs,
+	// punctuation, up to 12 characters). Only in memory, never sent; "" when it came from the walker itself
+	// (wbx_walk_extract) - then the screens use the stored text (nickname) as before.
+	char display_name[48];
 } wbx_walk_poke;
 
 typedef struct wbx_route_poke {

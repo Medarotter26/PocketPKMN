@@ -69,6 +69,12 @@ void ui_debug_view(void); // full-screen text view until B (Settings -> Debug vi
 void ui_msg_ask(const char *question, int dangerous); // bottom: the question, A Yes / B No (or hold L+R)
 void ui_msg_ok(void);                                  // bottom: A OK
 void ui_msg_clear(void);                               // bottom: "One moment..."
+// v0.78 (owner: the End walk text screen "could look a little nicer, but its also a little redundant"): while on, the
+// message screen's top shows one step line with a bar ("Step 2 of 4") instead of the flow's text; a question or an
+// OK (ui_msg_ask / ui_msg_ok) still shows the text as before. Every line still goes to the debug view.
+void ui_progress_begin(const char *title);
+void ui_progress_set(const char *line, int step, int total);
+void ui_progress_end(void);
 void ui_legacy_raw(int on); // 1 = the old text view as it was (screens laid out in columns or with pictures)
 // The printed page (source/ui_connect.c): lines since the last clear, oldest first, and the line being printed.
 int ui_page_count(void);
@@ -88,6 +94,8 @@ void ui_key(float cx, float cy, char key, int r);                       // r = 7
 void ui_stripe(float x, float y, float h);
 void ui_brackets(float x0, float y0, float x1, float y1);               // selection marks left/right
 void ui_rect(float x, float y, float w, float h, u32 color);
+// v0.83: the progress bar (connect screen, "Reading ... %" lines, End walk progress); frac 0..1
+void ui_bar(float x, float y, float w, float h, float frac, int active);
 void ui_arrow(float cx, float cy, char dir, float r, u32 color); // v0.49: 'l' 'r' 'u' 'd' triangle
 void ui_unknown_icon(float x, float y); // v0.50: the 32x32 "?" picture for a Pokemon not seen yet
 void ui_lcd(float x, float y, int w, int h, int scale);                // LCD glass (draw the picture over it)

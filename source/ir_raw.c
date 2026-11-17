@@ -40,6 +40,7 @@ static int bus_fault;
 static u8 saved_ier, saved_iostate, saved_efcr, saved_mcr, saved_efr;
 static unsigned st_ff_bursts, ff_logged, st_reconfigs;
 static unsigned st_early_idle, st_unequal_reads, st_short_sends; // v0.11 (LINK_REVIEW 7.4)
+static unsigned st_tx_restarts; // v0.80: "transmitter on" writes that did not take and were written again
 static u64 tx_on_us; // when fill_fifo last switched the transmitter on
 
 static bool chip_configure(void);
@@ -584,6 +585,28 @@ static int fill_fifo(const uint8_t *data, size_t len, u64 deadline)
 		dbg_printf("raw: I2C fault while starting the transmitter");
 		return 0;
 	}
+	// v0.80 (advisor 2026-11-16, part A; owner: "go ahead and fix everything"): on 2026-11-20 every timeout loss
+	// began with "transmitter never went idle ... EFCR 06" - this write had not taken (the chip still had the
+	// transmitter off) although the bus reported no fault, so the packet waited for the 300 ms deadline and the walker
+	// gave up first. Read EFCR back; only when two reads agree that the transmitter is still off, write it again (up
+	// to 3 times). Nothing has gone on the air while the transmitter is off, so this can never send a packet twice.
+	// A failed or disagreeing read changes nothing (as before). Each read is guarded like every other transfer.
+	for (int fix = 0; fix < 3; fix++) {
+		bus_fault = 0;
+		u8 e1 = rd(R_EFCR);
+		u8 e2 = rd(R_EFCR);
+		if (bus_fault || e1 != e2 || !(e1 & EFCR_TX_OFF))
+			break;
+		st_tx_restarts++;
+		dbg_printf("raw: transmitter-on write did not take (EFCR %02X) - written again (%d)", e1, fix + 1);
+		bus_fault = 0;
+		wr(R_EFCR, EFCR_RX_OFF);
+		tx_on_us = dbg_now_us(); // the air time counts from the write that sticks
+		if (bus_fault) {
+			dbg_printf("raw: I2C fault while starting the transmitter");
+			return 0;
+		}
+	}
 
 	size_t done = first;
 	tx_loaded = done;
@@ -782,9 +805,9 @@ void ir_raw_stats_log(void)
 	// v0.13 (LINK_REVIEW 11.1a): two lines, so neither can exceed the log's line buffer.
 	dbg_printf("raw: stats: bus retries %u (FIFO %u), packet resends %u, status-read faults %u, "
 	           "all-0xFF bursts %u, chip set up again %u, service errors %u (access: %s), "
-	           "early idle %u, unequal reads %u, short sends %u",
+	           "early idle %u, unequal reads %u, short sends %u, transmitter restarts %u",
 	           st_bus_retries, st_fifo_retries, st_packet_resends, st_lsr_faults, st_ff_bursts, st_reconfigs,
-	           st_svc_errors, ir_raw_access_name(), st_early_idle, st_unequal_reads, st_short_sends);
+	           st_svc_errors, ir_raw_access_name(), st_early_idle, st_unequal_reads, st_short_sends, st_tx_restarts);
 	long emin, emed, emax;
 	guard_err_stats(&emin, &emed, &emax);
 	dbg_printf("raw: guard: waits %u, missed %u (early %u, none %u), burst error min/median/max %ld/%ld/%ld us, "
@@ -793,7 +816,7 @@ void ir_raw_stats_log(void)
 	           (long)burst_period, st_resyncs,
 	           guard_on ? "on" : (ir_raw_guard_enabled ? "on, not locked" : "off"));
 	st_bus_retries = st_fifo_retries = st_packet_resends = st_lsr_faults = st_ff_bursts = st_reconfigs = 0;
-	st_svc_errors = st_early_idle = st_unequal_reads = st_short_sends = 0;
+	st_svc_errors = st_early_idle = st_unequal_reads = st_short_sends = st_tx_restarts = 0;
 	st_guard_waits = st_guard_missed = st_miss_early = st_miss_none = st_late = st_fifo_low = 0;
 	st_resyncs = miss_logged = 0;
 	st_err_set = 0;
@@ -937,6 +960,32 @@ static void write_efr(u8 v)
 	wr(R_LCR, 0x03);
 }
 
+// v0.84 (owner: "Yes, fix it"; console 2026-11-20 Ultra Sun test: "chip before ... EFR ff", then every connect
+// "transmitter never went idle"): EFR = 0xFF switches on auto RTS/CTS and software flow control, so the transmitter
+// never runs, and the chip keeps it until the console is switched off. It came from chip_configure's
+// "read_efr() | 0x10": rd() gives 0xFF when an I2C read fails, so one failed read wrote 0xFF. EFR is now written as an
+// exact value and checked: two reads that agree on it, up to 3 tries. Returns true when it is confirmed.
+static bool efr_set(u8 v)
+{
+	for (int tries = 0; tries < 3; tries++) {
+		bus_fault = 0;
+		write_efr(v);
+		u8 a = read_efr(), b = read_efr();
+		if (!bus_fault && a == v && b == v)
+			return true;
+		dbg_printf("raw: EFR write of %02x not confirmed (read %02x %02x%s) - try %d", v, a, b,
+		           bus_fault ? ", bus fault" : "", tries + 1);
+	}
+	return false;
+}
+
+// v0.84: the only EFR values the system was ever seen to use are 0x10 (and 0x00 after a power-on): bit 4 alone. Any
+// other bit (flow control, special character) is a damaged value - it is never kept or put back.
+static bool efr_sane(u8 v)
+{
+	return (v & (u8)~0x10) == 0;
+}
+
 static u8 read_divisor(void)
 {
 	wr(R_LCR, 0x83);
@@ -959,7 +1008,9 @@ static bool chip_configure(void)
 {
 	wr(R_EFCR, EFCR_RX_OFF | EFCR_TX_OFF);
 	wr(R_FCR, 0x00);
-	write_efr((u8)(read_efr() | 0x10)); // unlock IER[7:4] / MCR[7:5]
+	// unlock IER[7:4] / MCR[7:5]; v0.84: an exact value, checked (was read_efr() | 0x10 - a failed read wrote 0xFF)
+	bool efr_ok = efr_set(0x10);
+	bus_fault = 0;
 	set_divisor(10);                     // 115200 baud
 	if (read_divisor() != 10)
 		set_divisor(10);                 // the first write does not always stick
@@ -969,10 +1020,10 @@ static bool chip_configure(void)
 	rx_armed = 0;
 
 	u8 ier = rd(R_IER), mcr = rd(R_MCR), lcr = rd(R_LCR), div = read_divisor();
-	bool ok = !bus_fault && ier == 0x00 && (mcr & 0xC0) == 0x40 && lcr == 0x03 && div == 10;
+	bool ok = !bus_fault && ier == 0x00 && (mcr & 0xC0) == 0x40 && lcr == 0x03 && div == 10 && efr_ok;
 	if (!ok)
-		dbg_printf("raw: configure did not stick: IER %02x MCR %02x LCR %02x divisor %u%s", ier, mcr, lcr,
-		           div, bus_fault ? " (bus fault)" : "");
+		dbg_printf("raw: configure did not stick: IER %02x MCR %02x LCR %02x divisor %u EFR %s%s", ier, mcr, lcr,
+		           div, efr_ok ? "ok" : "NOT confirmed", bus_fault ? " (bus fault)" : "");
 	return ok;
 }
 
@@ -1145,6 +1196,10 @@ int ir_raw_open(pw_transport *out)
 	wr(R_LCR, lcr);
 	dbg_printf("raw: chip before: IER %02x LCR %02x MCR %02x EFR %02x EFCR %02x IODIR %02x IOSTATE %02x",
 	           saved_ier, lcr, saved_mcr, saved_efr, saved_efcr, iodir, saved_iostate);
+	if (!efr_sane(saved_efr)) { // v0.84: a damaged EFR (e.g. ff) is repaired and never put back at close
+		dbg_printf("raw: EFR %02x is not a value the system uses (flow control on) - repaired to 10", saved_efr);
+		saved_efr = 0x10;
+	}
 
 	st_ff_bursts = 0;
 	ff_logged = 0;
@@ -1177,7 +1232,10 @@ void ir_raw_close(void)
 	wr(R_IOSTATE, saved_iostate);
 	wr(R_IER, saved_ier);       // EFR bit 4 is still set, so sleep mode comes back too
 	wr(R_MCR, saved_mcr);
-	write_efr(saved_efr);
+	// v0.84: the system's value back, checked (saved_efr is always a sane value - see ir_raw_open)
+	if (!efr_set(efr_sane(saved_efr) ? saved_efr : 0x10))
+		dbg_printf("raw: close: EFR not confirmed");
+	bus_fault = 0;
 	wr(R_EFCR, saved_efcr);
 	raw_open_flag = 0;
 	rx_armed = 0;

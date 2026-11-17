@@ -47,6 +47,12 @@ void ui_set_ir_busy(int busy)
 
 int ui_begin(void)
 {
+	// v0.74 (console, owner's step f: HOME -> Close froze from Settings and from the Send game list, never from Home):
+	// once the system has asked the app to close it no longer owns the screens, and a frame that waits for them
+	// (C3D_FRAME_SYNCDRAW) can wait forever. No more frames then; every caller copes with 0 (its loop also checks
+	// aptMainLoop(), which is false from now on).
+	if (aptShouldClose())
+		return 0;
 	if (ir_busy) {
 		if (!C3D_FrameBegin(C3D_FRAME_NONBLOCK)) {
 			ir_skipped++;
@@ -289,6 +295,32 @@ void ui_box(int piece, float x, float y, float w, float h)
 void ui_rect(float x, float y, float w, float h, u32 color)
 {
 	C2D_DrawRectSolid(x, y, 0, w, h, color);
+}
+
+// v0.83 (owner: "can you update the progress bars to look nicer?"; then, from the HOME Menu's battery icon: "style it
+// similarly" and "the block separation is not necessary"): one progress bar for every screen, drawn like the battery
+// - a dark outline with rounded corners, a thin white gap inside it, then a light track and a continuous green fill
+// with a lighter top half and a darker bottom line. active = 0 draws a finished / waiting row in quieter greens.
+void ui_bar(float x, float y, float w, float h, float frac, int active)
+{
+	if (frac < 0)
+		frac = 0;
+	if (frac > 1)
+		frac = 1;
+	const u32 line = active ? C2D_Color32(40, 86, 34, 255) : C2D_Color32(96, 128, 88, 255);
+	ui_rect(x + 1, y, w - 2, 1, line); // the outline, corners left out = rounded
+	ui_rect(x + 1, y + h - 1, w - 2, 1, line);
+	ui_rect(x, y + 1, 1, h - 2, line);
+	ui_rect(x + w - 1, y + 1, 1, h - 2, line);
+	ui_rect(x + 1, y + 1, w - 2, h - 2, C2D_Color32(250, 252, 248, 255)); // the white gap
+	float ix = x + 2, iy = y + 2, iw = w - 4, ih = h - 4;
+	ui_rect(ix, iy, iw, ih, C2D_Color32(214, 226, 206, 255)); // the empty part
+	float fw = iw * frac;
+	if (fw < 1)
+		return;
+	ui_rect(ix, iy, fw, ih, active ? C2D_Color32(76, 150, 62, 255) : C2D_Color32(128, 168, 116, 255));
+	ui_rect(ix, iy, fw, ih / 2, C2D_Color32(255, 255, 255, 70)); // lighter top half
+	ui_rect(ix, iy + ih - 1, fw, 1, C2D_Color32(0, 0, 0, 40));   // darker bottom line
 }
 
 // --- text ---------------------------------------------------------------------------------------------------
@@ -672,8 +704,57 @@ static void sentence(const char *in, char *out, size_t n)
 	out[k] = 0;
 }
 
+// v0.78: progress mode (see ui.h)
+static int prog_on, prog_step, prog_total;
+static char prog_title[48], prog_line[96];
+
+void ui_progress_begin(const char *title)
+{
+	prog_on = 1;
+	prog_step = prog_total = 0;
+	prog_line[0] = 0;
+	snprintf(prog_title, sizeof(prog_title), "%s", title ? title : "");
+}
+
+void ui_progress_set(const char *line, int step, int total)
+{
+	snprintf(prog_line, sizeof(prog_line), "%s", line ? line : "");
+	prog_step = step;
+	prog_total = total;
+}
+
+void ui_progress_end(void)
+{
+	prog_on = 0;
+}
+
+static void draw_progress_view(void)
+{
+	ui_target_top();
+	ui_status_bar(prog_title[0] ? prog_title : NULL);
+	ui_box(UI_PANEL, 20, 34, 360, 188);
+	if (prog_title[0])
+		ui_band(20, 34, 360, 22, prog_title, 12, 0);
+	ui_text(200, 104, prog_line[0] ? prog_line : "One moment\xE2\x80\xA6", 13, UI_TEXT, 1, 'c', 1);
+	if (prog_total > 0) {
+		int s = prog_step < 1 ? 1 : prog_step > prog_total ? prog_total : prog_step;
+		ui_bar(80, 130, 240, 14, (float)s / prog_total, 1); // v0.83: the shared bar
+		char t[32];
+		snprintf(t, sizeof(t), "Step %d of %d", s, prog_total);
+		ui_text(200, 160, t, 10, UI_SUB, 0, 'c', 1);
+	}
+	ui_text(200, 200, "Please don't turn off the console or remove the game card.", 9.5f, UI_SUB, 0, 'c', 1);
+	ui_target_bottom();
+	ui_box(UI_PANEL, 60, 96, 200, 40);
+	ui_text(160, 116, "One moment\xE2\x80\xA6", 11, UI_SUB, 0, 'c', 1);
+}
+
 static void draw_message_view(void)
 {
+	if (prog_on && msg_mode == 0) { // v0.78: a question or an OK shows the flow's text as before
+		draw_progress_view();
+		return;
+	}
 	int n = ui_page_count(), first = 0;
 	char title[64] = "";
 	// header: the flow's title (its first line in capitals, e.g. "SEND TO WALKER")
@@ -734,8 +815,7 @@ static void draw_message_view(void)
 			char pt[8];
 			snprintf(pt, sizeof(pt), "%d %%", pct > 100 ? 100 : pct);
 			ui_text(340, y, pt, 11, UI_SUB, 1, 'r', 1);
-			ui_rect(170, y - 4, 120, 8, C2D_Color32(222, 232, 214, 255));
-			ui_rect(170, y - 4, 120.0f * (pct > 100 ? 100 : pct) / 100.0f, 8, UI_BAND);
+			ui_bar(170, y - 5, 120, 10, (pct > 100 ? 100 : pct) / 100.0f, 1); // v0.83: the shared bar
 		} else if (caps) {
 			sentence(keep[i], sc, sizeof(sc));
 			ui_text(200, y, sc, 13, UI_BAND, 1, 'c', 1);

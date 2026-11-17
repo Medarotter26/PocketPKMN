@@ -32,6 +32,7 @@ def gen_font():
     out.append("// WalkerBox original proportional pixel font: cap height 9, x-height 6,")
     out.append("// descender 3, 2 accent rows above the caps; line height 16.")
     out.append("// rows[0..13]: bit 7 = leftmost pixel. Advance = w + 1.")
+    out.append("// v0.81 (names step 1, owner: "Go 12"): glyphs 95.. = pw_font_extra_cp[].")
     out.append('#include "pw_image.h"')
     out.append("")
     out.append("const pw_glyph_t pw_font_glyphs[PW_FONT_COUNT] = {")
@@ -40,7 +41,7 @@ def gen_font():
             ch = chr(0x20 + i)
             label = "space" if ch == " " else ch
         else:
-            label = "e-acute" if i == 95 else "E-acute"
+            label = pwimg.EXTRA[i - 95][0].replace("_", "-")
         vals = []
         for r in rows:
             v = 0
@@ -51,6 +52,12 @@ def gen_font():
         if label in ("\\",):
             label = "backslash"
         out.append("    {%d, {%s}}, // %s" % (w, ", ".join(vals), label))
+    out.append("};")
+    out.append("")
+    out.append("// Unicode code point of each glyph from index 95 on (art/font.txt names, tools/pwimg.py EXTRA).")
+    out.append("const uint16_t pw_font_extra_cp[PW_FONT_COUNT - PW_FONT_E_ACUTE] = {")
+    for k in range(0, len(pwimg.EXTRA), 8):
+        out.append("    " + " ".join("0x%04X," % cp for _, cp in pwimg.EXTRA[k:k + 8]))
     out.append("};")
     out.append("")
     with open(os.path.join(ROOT, "source", "pw_font.c"), "w", newline="\n") as f:

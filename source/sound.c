@@ -13,7 +13,9 @@
 #define CH_MUSIC 0
 #define CH_FX 1
 #define CH_TRANSFER 2
-#define MUSIC_VOL 0.55f
+// v0.77 (owner: the song is "kind of quiet"): 0.55 -> 0.7. v0.79: 1.0 - the new song (tools/compose_song2.py, no
+// limiter, peak -1 dBFS) sits 3.5 dB under the old file; this keeps the level clean (no limiter, no clipping)
+#define MUSIC_VOL 1.0f
 // v0.57 (console test: "the transfer soundeffect is really quiet and the music isn't quiet enough during transfer,
 // fade also takes too long"): transfer at full level (its file is louder too), fade 0.5 s (was 1.5 s).
 // v0.59 (user: "the music isn't getting quiet quick enough ... Volume should be dim and finished fading by the time
@@ -23,7 +25,7 @@
 #define MUSIC_VOL_QUIET 0.18f // while a walker link is open (user: "the background music should dim")
 #define LINK_DIM_S 0.25f      // sound_link(1): the whole dim takes this long, before IR starts
 #define FX_VOL 0.9f
-#define TRANSFER_VOL 1.0f
+#define TRANSFER_VOL 0.8f // v0.76 (owner: "the transmitting sound effect is a little too loud. just a little"): was 1.0
 // user: "It should be a gradual fade down not a sudden jump to lower volume": volumes glide to their targets,
 // a full change taking about FADE_S seconds, moved in small steps by a low-priority thread every FADE_TICK_MS
 #define FADE_S 0.5f
@@ -232,14 +234,24 @@ void sound_init(int want_music, int want_fx)
 		snprintf(path, sizeof path, "%s:/sound/%s.bin", dev, names[i]);
 		got += load_clip(path, &fx[i], 2u * 1024 * 1024);
 	}
+	// v0.73 (owner: "Let's go with v3 straight"): the app's own song "Pocket Stroll" (tools/compose_music.py) is built
+	// in; a music.bin on the SD card still comes first (the user's own music)
+	int m = load_clip(MUSIC_PATH, &music, 24u * 1024 * 1024);
+	const char *from = MUSIC_PATH;
+	if (!m) {
+		char path[64];
+		snprintf(path, sizeof path, "%s:/sound/music.bin", dev);
+		m = load_clip(path, &music, 24u * 1024 * 1024);
+		from = "the app's own song";
+	}
 	if (own)
 		romfsUnmount("wbxsnd");
-	int m = load_clip(MUSIC_PATH, &music, 24u * 1024 * 1024);
-	dbg_printf("sound: %d of %d effects, music %s", got, SND_COUNT, m ? "loaded" : "none (" MUSIC_PATH " missing or too big)");
+	dbg_printf("sound: %d of %d effects, music %s%s", got, SND_COUNT, m ? "loaded from " : "none", m ? from : "");
 	if (m)
 		dbg_printf("sound: music %lu Hz, %u ch, intro %lu + loop %lu samples", (unsigned long)music.rate,
 		           music.channels, (unsigned long)music.intro, (unsigned long)music.loop);
-	// the fade thread: lowest priority (runs only when the app's own thread waits), same core
+	// the fade thread: one step below the app's main thread (prio + 1; it runs only when the main thread waits), same
+	// core (v0.80, advisor B4: this said "lowest priority")
 	s32 prio = 0x30;
 	svcGetThreadPriority(&prio, CUR_THREAD_HANDLE);
 	fade_run = 1;

@@ -112,10 +112,68 @@ static void tap_bytes(const char *p, size_t n)
 	cur[cur_len] = 0;
 }
 
+// v0.85 (owner: on the Move Pokemon screen "pokemon platinum is glitched. the k and accent e dont render correctly
+// (the debug looking screen)"): the text consoles draw one byte per character with an 8x8 font, so a UTF-8 letter
+// (2-3 bytes) showed as two or three odd glyphs. What goes to the consoles is now folded to ASCII (e-acute -> e,
+// sharp s -> ss, the gender signs -> M / F, curly quote -> '); the message screen (system font) still gets the real
+// UTF-8 through tap_bytes. A sequence cut between two writes is kept until the next write.
+static void fold_cp(unsigned cp, char *out, int *n)
+{
+	// U+00C0..U+00FF, one letter each ('?' where there is no plain form; sharp s handled below)
+	static const char lat1[] = "AAAAAAACEEEEIIIIDNOOOOO*OUUUUYTsaaaaaaaceeeeiiiidnooooo/ouuuuyty";
+	const char *s = NULL;
+	char one[2] = {0, 0};
+	if (cp == 0xDF) s = "ss";
+	else if (cp >= 0xC0 && cp <= 0xFF) { one[0] = lat1[cp - 0xC0]; s = one; }
+	else if (cp == 0x152) s = "OE";
+	else if (cp == 0x153) s = "oe";
+	else if (cp == 0x2642 || cp == 0xE08E) s = "M";
+	else if (cp == 0x2640 || cp == 0xE08F) s = "F";
+	else if (cp == 0x2018 || cp == 0x2019) s = "'";
+	else if (cp == 0x201C || cp == 0x201D) s = "\"";
+	else if (cp == 0x2026) s = "...";
+	else if (cp == 0xB7 || cp == 0x2013 || cp == 0x2014) s = "-";
+	else s = "?";
+	while (*s)
+		out[(*n)++] = *s++;
+}
+
 static ssize_t tap_write(struct _reent *r, void *fd, const char *ptr, size_t len)
 {
 	tap_bytes(ptr, len);
-	return orig->write_r(r, fd, ptr, len);
+	static unsigned char part[4];
+	static int part_n, part_need;
+	char out[256];
+	int n = 0;
+	for (size_t i = 0; i < len; i++) {
+		unsigned char c = (unsigned char)ptr[i];
+		if (part_need) {
+			if ((c & 0xC0) == 0x80) {
+				part[part_n++] = c;
+				if (part_n == part_need) {
+					unsigned cp = part_need == 2 ? ((part[0] & 0x1Fu) << 6) | (part[1] & 0x3Fu)
+					                             : ((part[0] & 0x0Fu) << 12) | ((part[1] & 0x3Fu) << 6) | (part[2] & 0x3Fu);
+					fold_cp(cp, out, &n);
+					part_need = part_n = 0;
+				}
+				goto flush;
+			}
+			out[n++] = '?'; // a broken sequence
+			part_need = part_n = 0;
+		}
+		if (c >= 0xC2 && c <= 0xDF) { part[0] = c; part_n = 1; part_need = 2; }
+		else if (c >= 0xE0 && c <= 0xEF) { part[0] = c; part_n = 1; part_need = 3; }
+		else if (c >= 0x80) out[n++] = '?';
+		else out[n++] = (char)c;
+	flush:
+		if (n > (int)sizeof(out) - 8) {
+			orig->write_r(r, fd, out, (size_t)n);
+			n = 0;
+		}
+	}
+	if (n)
+		orig->write_r(r, fd, out, (size_t)n);
+	return (ssize_t)len; // all bytes taken (some held for the next write)
 }
 
 void ui_tap_stdout(void)
@@ -268,9 +326,7 @@ static void bar_row(float y, const char *label, int pct, int current)
 {
 	char p[16];
 	ui_text(24, y, label, 11, current ? UI_TEXT : UI_SUB, current, 'l', 1);
-	ui_rect(168, y - 5, 160, 10, C2D_Color32(222, 232, 214, 255));
-	if (pct > 0)
-		ui_rect(168, y - 5, 160.0f * (pct > 100 ? 100 : pct) / 100.0f, 10, UI_BAND);
+	ui_bar(168, y - 6, 160, 12, (pct > 100 ? 100 : pct) / 100.0f, current); // v0.83: the shared bar
 	snprintf(p, sizeof(p), "%d %%", pct > 100 ? 100 : pct);
 	ui_text(376, y, p, 11, UI_SUB, 1, 'r', 1);
 }

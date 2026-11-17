@@ -1,0 +1,17 @@
+# Gen 6/7 mini sprite frame 2 (TEST) - tools/walker_mini67_parts.py
+# dex  base  [cut]  | part box x0 y0 x1 y1 (inclusive, walker grid, faces right) and its own move dx dy | ...
+# base: "squat C" = rows above C move 1 px down, rows C.. (feet) stay; "bob" = whole sprite 1 px down.
+# A part's move is from its frame-1 place: 0 0 = stays while the body dips (looks lifted/lagging), 0 -1 = flicks up.
+# Parts read off the full sprite + colour icon (2026-11-16).
+650 squat 20 | 11 1 22 4 0 0 | 8 16 12 19 0 -1          # Chespin: quills stay up, tail flicks
+653 squat 20 | 19 4 24 8 0 0 | 8 14 11 18 0 -1          # Fennekin: right ear stays, tail flicks
+656 squat 20 | 7 9 10 13 0 -1 | 21 17 24 20 0 -1   # Froakie: frubbles + hand up
+661 squat 21 | 8 9 11 12 0 -1                           # Fletchling: tail flicks
+667 squat 20 | 6 7 10 11 0 -1 | 16 3 20 5 0 0           # Litleo: tail tuft flicks, mane tuft stays
+700 squat 20 | 5 13 11 16 0 -1 | 22 1 25 4 1 0          # Sylveon: feeler lifts, head ribbon sways
+707 bob | 7 17 11 23 0 0 | 24 7 29 10 0 0               # Klefki: floats down, keys lag (jingle)
+722 squat 21                                             # Rowlet: round body, just the squash
+725 squat 21 | 5 8 10 11 0 -1 | 17 3 23 6 0 0           # Litten: tail tip flicks, ears stay
+728 squat 20 | 21 5 24 8 0 -1                           # Popplio: nose ball bounces up
+744 squat 20 | 7 3 11 9 -1 0 | 22 5 26 8 0 0            # Rockruff: tail wags, ear stays
+778 squat 21 | 18 2 21 7 1 0 | 8 10 13 12 0 0          # Mimikyu: head tip sways, tail stick lags

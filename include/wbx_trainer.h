@@ -28,6 +28,11 @@ typedef struct wbx_trainer {
 int wbx_trainer_load(wbx_trainer *t, const char *path);
 int wbx_trainer_save(const wbx_trainer *t, const char *path);
 
+// v0.81 (review finding 5 / E, owner: "Go 12" (all three)): as wbx_trainer_load, but when path is missing or not valid
+// path.tmp / path.bak is used (a save cut off by a stop; a missing path gets that copy back). 0 = path itself,
+// 1 = .tmp, 2 = .bak, -1 = no valid trainer.
+int wbx_trainer_load_any(wbx_trainer *t, const char *path);
+
 // Keeps what the walker text can show (letters, digits, space), max 7; "" if nothing is left.
 void wbx_trainer_clean_name(const char *in, char out[WBX_TRAINER_NAME_MAX + 1]);
 

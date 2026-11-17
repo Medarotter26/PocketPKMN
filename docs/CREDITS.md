@@ -43,6 +43,10 @@ who receives the app.
     Zerudez. Per-sprite credits: [docs/credits_smogon.csv](credits_smogon.csv).
 - **Walker menu pictures and sounds (built in for "Set up a walker"):** Pokémon HeartGold / SoulSilver (Game Freak /
   Nintendo), taken from the user's own Pokéwalker.
+- **Background music "Pocket Stroll"** (`romfs/sound/music.bin`, v0.73, rebuilt in v0.79): composed for PocketPKMN
+  and synthesised from code (`tools/compose_song2.py`, earlier `tools/compose_music.py`; no samples or recordings),
+  part of PocketPKMN under its licence (GPL-3.0).
+  Button clicks and transfer sounds: PocketPKMN's own (`tools/make_sfx.py`).
 - **"?" picture for route Pokémon not seen yet** (`gfx/ui_unknown.png`, v0.50): a Pokémon game graphic
   (© Nintendo / Creatures Inc. / GAME FREAK inc.).
 

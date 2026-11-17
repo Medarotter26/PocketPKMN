@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "safe_file.h" // v0.81 (review finding 5 / E, owner: "Go 12" (all three))
 #include "walk_compose.h"
 
 void wbx_trainer_clean_name(const char *in, char out[WBX_TRAINER_NAME_MAX + 1])
@@ -35,21 +36,16 @@ void wbx_trainer_new(wbx_trainer *t, const char *name, uint32_t (*rnd)(void))
 
 int wbx_trainer_save(const wbx_trainer *t, const char *path)
 {
-	char tmp[160];
-	snprintf(tmp, sizeof tmp, "%s.tmp", path);
-	FILE *f = fopen(tmp, "w");
-	if (!f)
-		return -1;
-	fprintf(f, "# WalkerBox trainer - the owner of the walkers WalkerBox uses. Keep this file.\n");
-	fprintf(f, "name=%s\ntid=%u\nsid=%u\nsave_id=", t->name, t->tid, t->sid);
+	// v0.81 (review finding 5 / E, owner: "Go 12" (all three)): the same text as before, put on the card by sf_write -
+	// the old trainer.txt becomes trainer.txt.bak until the new one is in place (it was removed first, so a stop
+	// in between left no trainer and the next start made a new one).
+	char text[320];
+	int n = snprintf(text, sizeof text, "# WalkerBox trainer - the owner of the walkers WalkerBox uses. Keep this file.\n");
+	n += snprintf(text + n, sizeof text - n, "name=%s\ntid=%u\nsid=%u\nsave_id=", t->name, t->tid, t->sid);
 	for (int i = 0; i < 0x28; i++)
-		fprintf(f, "%02x", t->save_id[i]);
-	fprintf(f, "\n");
-	int ok = fclose(f) == 0;
-	if (!ok)
-		return -1;
-	remove(path);
-	if (rename(tmp, path) != 0)
+		n += snprintf(text + n, sizeof text - n, "%02x", t->save_id[i]);
+	n += snprintf(text + n, sizeof text - n, "\n");
+	if (n >= (int)sizeof text || sf_write(path, text, (size_t)n) != 0)
 		return -1;
 	wbx_trainer back;
 	return wbx_trainer_load(&back, path) == 0 && memcmp(&back, t, sizeof back) == 0 ? 0 : -1;
@@ -88,6 +84,23 @@ int wbx_trainer_load(wbx_trainer *t, const char *path)
 	}
 	fclose(f);
 	return have == 15 ? 0 : -1;
+}
+
+// v0.81 (review finding 5 / E, owner: "Go 12" (all three))
+static int trainer_valid(const char *path, void *ctx)
+{
+	(void)ctx;
+	wbx_trainer t;
+	return wbx_trainer_load(&t, path) == 0;
+}
+
+int wbx_trainer_load_any(wbx_trainer *t, const char *path)
+{
+	char use[512];
+	int from = sf_pick(path, trainer_valid, NULL, use, sizeof use);
+	if (from < 0 || wbx_trainer_load(t, use) != 0)
+		return -1;
+	return from;
 }
 
 void wbx_trainer_identity(const wbx_trainer *t, const uint8_t base[0x68], uint8_t out[0x68])

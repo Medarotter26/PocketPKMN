@@ -12,8 +12,8 @@ extern "C" {
 
 typedef struct ui_send_info {
 	const u8 *sprite;      // the walking Pokemon's walker sprite (small x2 + large x2, wbx_walk_poke.sprite)
-	char line1[96];        // "Oshawott  Lv.12 \xC2\xB7 from Pokemon X (Nate)" (debug log only since v0.52)
-	char mon[32], game[64], trainer[24]; // v0.52: the top info box's columns ("Oshawott  Lv.12", "Pokemon X", "Nate")
+	char line1[96];        // "Oshawott  Lv.12 \xC2\xB7 from Pokemon X (PLAYER)" (debug log only since v0.52)
+	char mon[64], game[64], trainer[24]; // v0.82: mon 32 -> 64 (display names, UTF-8) // v0.52: the top info box's columns ("Oshawott  Lv.12", "Pokemon X", "PLAYER")
 	int ev_allowed;        // 0 for Gen 1/2 (no EVs)
 	const route_file *rf;  // the game's courses, or NULL -> "Test Path" only
 	int gen;               // the game's generation (route sprites: Gen 1/2 set for gen 2)

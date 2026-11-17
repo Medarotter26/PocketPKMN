@@ -70,3 +70,18 @@ int wp_all_done(const wp_record *rec);
 int wp_settle_started(wp_record *rec);
 
 void wp_init(wp_record *rec);
+
+// v0.80 (advisor R1, owner: "go ahead and fix everything"): marks *st STARTED and saves the record with save(ctx) (0 = saved).
+// 1 = the mark is on the card, the step may run. 0 = the save failed: *st is TODO again in memory, so a later save
+// never writes "started" for a step that did not run (the step must not run now).
+int wp_begin_step(uint8_t *st, int (*save)(void *ctx), void *ctx);
+
+// v0.80 (advisor R2, owner: "go ahead and fix everything"): 1 when the walked Pokemon's bank entry is in the record. 0 = it could
+// not be read at walk end: nothing is delivered until it is read again (try later, never "finished" without it).
+int wp_entry_ok(const wp_record *rec);
+
+// v0.80 (advisor R3, owner: "go ahead and fix everything"): after a load, before wp_settle_started. A gains step cut off after its
+// "started" mark: walking = its bank slot is still marked walking, fp_now = the slot's fingerprint now. Unchanged
+// (fp_now == bank_fp) and still walking = the bank was not written, the gains were not applied: the step becomes TODO
+// again and 1 is returned. Any other case: 0, nothing changed (settled as before - never doubled).
+int wp_gains_reopen(wp_record *rec, int walking, uint32_t fp_now);

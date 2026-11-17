@@ -4,8 +4,9 @@
 //
 // Everything is loaded into memory once at start-up and played by the 3DS sound chip (ndsp) from there: nothing is
 // read from the SD card later, so playing a sound is safe while a walker is connected (no SD access, no waiting).
-// - Music: sdmc:/3ds/pocketpkmn/music.bin (tools/make_music.py: an intro played once, then a loop forever). It is
-//   the user's own file on their SD card and is never built into the app or the release. No file = no music.
+// - Music: sdmc:/3ds/pocketpkmn/music.bin (tools/make_music.py: an intro played once, then a loop forever) - the
+//   user's own file on their SD card, never built into the app or the release. v0.73: without it, the app's own
+//   song romfs:/sound/music.bin ("Pocket Stroll", composed and synthesised by tools/compose_music.py) plays.
 // - Effects: romfs:/sound/{click,transfer,success,fail}.bin (tools/make_sfx.py, PocketPKMN's own sounds).
 // Needs the console's DSP firmware (sdmc:/3ds/dspfirm.cdc, dumped once with DSP1); without it the app is silent.
 #ifndef SOUND_H

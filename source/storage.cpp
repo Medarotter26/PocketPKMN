@@ -18,6 +18,7 @@
 #include "gamematch.hpp"
 #include "gbavc.hpp"
 #include "walk_poke.hpp"
+#include "safe_file.h" // v0.81 (review finding 5 / E, owner: "Go 12" (all three))
 
 extern "C" void ui_legacy_present(void); // include/ui.h (v0.32: screen output only)
 
@@ -281,12 +282,10 @@ namespace
             if (!dsFileRead(s.file, whole))
                 return false;
             memcpy(whole.data(), data, length);
-            std::string tmp = s.file + ".tmp";
-            FILE* fp = fopen(tmp.c_str(), "wb");
-            bool ok = fp && fwrite(whole.data(), 1, whole.size(), fp) == whole.size();
-            if (fp)
-                ok = (fclose(fp) == 0) && ok;
-            if (!ok || remove(s.file.c_str()) != 0 || rename(tmp.c_str(), s.file.c_str()) != 0)
+            // v0.81 (review finding 5 / E, owner: "Go 12" (all three)): the same bytes as before, put on the card by
+            // sf_write - the old .sav becomes .sav.bak until the new one is in place and read back (it was removed
+            // first, so a stop in between left no .sav for TWiLight Menu; scanSdForDsSaves puts a copy back)
+            if (sf_write(s.file.c_str(), whole.data(), whole.size()) != 0)
             {
                 dbg_printf("storage: DS file write failed: %s", s.file.c_str());
                 return false;
@@ -629,6 +628,13 @@ namespace
         return false;
     }
 
+    // v0.81 (review finding 5 / E, owner: "Go 12" (all three)): a .sav (or its .tmp / .bak copy) of a DS save's size
+    int dsSavValid(const char* path, void*)
+    {
+        struct stat st;
+        return stat(path, &st) == 0 && st.st_size >= (off_t)DS_SAVE_SIZE && st.st_size <= (off_t)DS_SAVE_SIZE + 0x10000;
+    }
+
     void scanSdForDsSaves(const std::string& dir, int depth, std::vector<std::string>& out)
     {
         if (depth > 5 || skipDir(dir) || out.size() >= 32)
@@ -636,7 +642,7 @@ namespace
         DIR* d = opendir(dir.c_str());
         if (!d)
             return;
-        std::vector<std::string> sub;
+        std::vector<std::string> sub, cut; // v0.81: cut = .sav names that have a .sav.tmp / .sav.bak
         while (struct dirent* e = readdir(d))
         {
             std::string name = e->d_name;
@@ -647,13 +653,29 @@ namespace
                 sub.push_back(path);
             else if (name.size() > 4 && lower(name.substr(name.size() - 4)) == ".sav")
             {
-                struct stat st;
-                if (stat(path.c_str(), &st) == 0 && st.st_size >= (off_t)DS_SAVE_SIZE &&
-                    st.st_size <= (off_t)DS_SAVE_SIZE + 0x10000)
+                if (dsSavValid(path.c_str(), nullptr)) // v0.81: the same size check as before
                     out.push_back(path);
             }
+            else if (name.size() > 8 && (lower(name.substr(name.size() - 8)) == ".sav.tmp" ||
+                                         lower(name.substr(name.size() - 8)) == ".sav.bak"))
+                cut.push_back(path.substr(0, path.size() - 4));
         }
         closedir(d);
+        // v0.81 (review finding 5 / E, owner: "Go 12" (all three)): a write of the .sav cut off by a stop can leave it
+        // only as .sav.tmp (the new one) / .sav.bak (the old one) - TWiLight Menu reads only the .sav: put it back
+        for (const std::string& base : cut)
+        {
+            struct stat st;
+            if (stat(base.c_str(), &st) == 0 || out.size() >= 32)
+                continue; // the .sav is there (an old left-over copy beside it is not used), or already put back
+            char use[600];
+            int from = sf_pick(base.c_str(), dsSavValid, nullptr, use, sizeof(use));
+            if (from > 0)
+                dbg_printf("storage: %s was missing - %s from its %s (a write of it was cut off)", base.c_str(),
+                    base == use ? "put back" : "NOT put back, read", from == 1 ? ".tmp (newest)" : ".bak");
+            if (from > 0 && base == use)
+                out.push_back(base);
+        }
         for (const std::string& s : sub)
             scanSdForDsSaves(s, depth + 1, out);
     }
@@ -3105,7 +3127,7 @@ extern "C" int storage_deliver_catches(const unsigned char* entry, const storage
     setWhy(msg, msg_size, "");
     if (n <= 0)
         return 0;
-    if (!entry || !prepareData() || !bankLoad())
+    if (!entry || !entry[0] || !prepareData() || !bankLoad()) // v0.80 (advisor R2): empty entry = try later
     {
         setWhy(msg, msg_size, "The caught Pokemon could not be made now (Pokemon data or PocketPKMN box).");
         return -1;
@@ -3252,8 +3274,15 @@ extern "C" int storage_deliver_catches(const unsigned char* entry, const storage
         if (!bankSaveChecked(bb, bs, raw))
         {
             bankClear(bb, bs);
-            bankSave();
-            out += name + ": could not be saved.\n";
+            // v0.80 (advisor R4, owner: "go ahead and fix everything"): nothing stored - tried again later, but only when the
+            // card is read back with that slot empty (no copy of it anywhere); else finished as before (never twice)
+            if (bankSaveChecked(bb, bs, {}))
+            {
+                later = 1;
+                out += name + ": could not be saved - tried again\nnext time.\n";
+            }
+            else
+                out += name + ": could not be saved.\n";
             continue;
         }
         dbg_printf("catch %s Lv%d (course %d poke %d, template flags %d) -> bank %d/%d", name.c_str(), c.level,
@@ -3285,7 +3314,7 @@ extern "C" int storage_deliver_items(const unsigned char* entry, const storage_f
     if (n <= 0)
         return 0;
     unsigned long long tid = 0;
-    if (!entry || !prepareData() || !bankLoad())
+    if (!entry || !entry[0] || !prepareData() || !bankLoad()) // v0.80 (advisor R2): empty entry = try later
     {
         setWhy(msg, msg_size, "The items could not be sent now (Pokemon data or PocketPKMN box).");
         return -1;

@@ -63,11 +63,36 @@ Y_OFFSET = 1         # glyph row 0 goes to line row 1 (caps on rows 3-11)
 E_ACUTE = 95
 CE_ACUTE = 96
 
+# Glyphs after 0x7E, in font order (index 95 on): (name in art/font.txt, code point).
+# v0.81 (names step 1, owner: "Go 12"): accented Latin letters and the gender signs.
+EXTRA = [
+    ("e_acute", 0x00E9), ("E_acute", 0x00C9),
+    ("a_grave", 0x00E0), ("a_acute", 0x00E1), ("a_circ", 0x00E2), ("a_uml", 0x00E4),
+    ("c_cedil", 0x00E7),
+    ("e_grave", 0x00E8), ("e_circ", 0x00EA), ("e_uml", 0x00EB),
+    ("i_grave", 0x00EC), ("i_acute", 0x00ED), ("i_circ", 0x00EE), ("i_uml", 0x00EF),
+    ("n_tilde", 0x00F1),
+    ("o_grave", 0x00F2), ("o_acute", 0x00F3), ("o_circ", 0x00F4), ("o_uml", 0x00F6), ("oe", 0x0153),
+    ("u_grave", 0x00F9), ("u_acute", 0x00FA), ("u_circ", 0x00FB), ("u_uml", 0x00FC),
+    ("sharp_s", 0x00DF),
+    ("A_grave", 0x00C0), ("A_acute", 0x00C1), ("A_circ", 0x00C2), ("A_uml", 0x00C4),
+    ("C_cedil", 0x00C7),
+    ("E_grave", 0x00C8), ("E_circ", 0x00CA), ("E_uml", 0x00CB),
+    ("I_grave", 0x00CC), ("I_acute", 0x00CD), ("I_circ", 0x00CE), ("I_uml", 0x00CF),
+    ("N_tilde", 0x00D1),
+    ("O_grave", 0x00D2), ("O_acute", 0x00D3), ("O_circ", 0x00D4), ("O_uml", 0x00D6), ("OE", 0x0152),
+    ("U_grave", 0x00D9), ("U_acute", 0x00DA), ("U_circ", 0x00DB), ("U_uml", 0x00DC),
+    ("male", 0x2642), ("female", 0x2640),
+]
+# Code points drawn with another glyph (same table as pw_glyph_for() in source/pw_image.c).
+ALIAS = {0x2018: 0x27, 0x2019: 0x27, 0x2024: 0x2E, 0xE08E: 0x2642, 0xE08F: 0x2640}
+FONT_COUNT = 95 + len(EXTRA)
+
 _font = None
 
 
 def load_font(path=None):
-    """Returns a list of 97 glyphs, each (width, [14 row strings])."""
+    """Returns a list of FONT_COUNT glyphs, each (width, [14 row strings])."""
     global _font
     if _font is not None and path is None:
         return _font
@@ -110,7 +135,8 @@ def load_font(path=None):
             rows.append(line)
         finish()
 
-    names = {"space": " ", "e_acute": "é", "E_acute": "É"}
+    names = {"space": " "}
+    names.update((n, chr(cp)) for n, cp in EXTRA)
     table = {}
     for k, v in glyphs.items():
         table[names.get(k, k)] = v
@@ -119,11 +145,11 @@ def load_font(path=None):
         if chr(c) not in table:
             raise ValueError("font is missing %r" % chr(c))
         out.append(table[chr(c)])
-    for c in ("é", "É"):
-        if c not in table:
-            raise ValueError("font is missing %r" % c)
-        out.append(table[c])
-    extra = set(table) - set(chr(c) for c in range(0x20, 0x7F)) - {"é", "É"}
+    for n, cp in EXTRA:
+        if chr(cp) not in table:
+            raise ValueError("font is missing %r" % n)
+        out.append(table[chr(cp)])
+    extra = set(table) - set(chr(c) for c in range(0x20, 0x7F)) - set(chr(cp) for _, cp in EXTRA)
     if extra:
         raise ValueError("font has unknown glyphs: %r" % sorted(extra))
     if path == os.path.join(ART, "font.txt"):
@@ -132,13 +158,12 @@ def load_font(path=None):
 
 
 def glyph_index(ch):
-    o = ord(ch)
+    o = ALIAS.get(ord(ch), ord(ch))
     if 0x20 <= o <= 0x7E:
         return o - 0x20
-    if ch == "é":
-        return E_ACUTE
-    if ch == "É":
-        return CE_ACUTE
+    for i, (_, cp) in enumerate(EXTRA):
+        if cp == o:
+            return 95 + i
     return ord("?") - 0x20
 
 

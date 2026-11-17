@@ -15,7 +15,21 @@ ROM=$(ls *.nds 2>/dev/null | head -1)
 if [ -n "$ROM" ]; then
     python3 -I tools/walker_assets.py build --hgss "$ROM"
 fi
-bash tools/sync_romfs_sprites.sh --check
+# v0.80 (owner: "go ahead and fix everything"): #494-649 in the romfs pack are the Gen 5 imports of tools/sync_gen5_sprites.sh
+# (521 / 592 / 593 from their _m files), not the ROM-built pack: #1-493 and #650-807 are compared with sd_out, the
+# Gen 5 range with the sprite session's files (sync_gen5_sprites.sh --check).
+SRC=sd_out/3ds/walkerbox/sprites
+DST=romfs/sprites/pack
+n=$(ls "$SRC"/*.bin | wc -l)
+if [ "$n" != 807 ]; then echo "expected 807 files in $SRC, found $n"; exit 1; fi
+bad=0
+for i in $(seq 1 493) $(seq 650 807); do
+    f=$(printf %03d.bin "$i")
+    cmp -s "$SRC/$f" "$DST/$f" || { echo "differs: $DST/$f"; bad=1; }
+done
+[ $bad = 0 ] || exit 1
+echo "romfs pack #1-493 and #650-807 = sd_out pack (644 files)"
+bash tools/sync_gen5_sprites.sh --check
 SRCS="source/pw_image.c source/pw_font.c source/wbx_sprites.c tests/test_sprites.c"
 FLAGS="-std=c99 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -fno-sanitize-recover=all -Iinclude"
 gcc $FLAGS $SRCS -o /tmp/walkerbox_test_sprites \

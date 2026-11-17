@@ -37,6 +37,10 @@ static const char *const k_lines[] = {
 	"The Cynical Poet, Wobblebuns, Wyverii, Zermonious, Zerudez.",
 	"Walker menu pictures and sounds: HeartGold / SoulSilver.",
 	"",
+	"#Music",
+	"\"Pocket Stroll\": PocketPKMN's own song (v0.79),", // v0.79: tools/compose_song2.py, docs/CREDITS.md
+	"composed for the app and synthesised from code.",
+	"",
 	"#Code",
 	"PKSM-Core by FlagBrew and contributors (GPL-3.0).",
 	"PKHeX.Core by Kurt (kwsch) and contributors (GPL-3.0):", // v0.68 (owner), as docs/CREDITS.md
