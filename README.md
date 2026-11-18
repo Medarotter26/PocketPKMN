@@ -5,6 +5,8 @@ real, unmodified **Pokéwalker** over the 3DS's own infrared port, then bring it
 gave it — plus the Pokémon and items it found.
 
 ![Home: Snivy on a walk](docs/screenshots/home_snivy_animated.png)
+![Box: choosing a Pokémon from Pokémon X](docs/screenshots/box_gen6_animated.png)
+![Connecting: sending the walk](docs/screenshots/connect_animated.png)
 
 > Fan-made and unofficial. Not made, endorsed or supported by Nintendo, The Pokémon Company, Game Freak or
 > Creatures. Pokémon and Pokéwalker are trademarks of their owners. Experimental software: **back up your saves**
