@@ -53,6 +53,7 @@ g++ -std=gnu++20 -O1 -Wall -Wextra $DEFS $INC -I$HERE/include -DWBX_SPRITE_PC_DI
 "$OUT/test_walk_poke" $HERE/hw/storage_s2/0004000000171100-20261118-165312.sav \
     $HERE/hw/gen2/0004000000172800-20261118-190237.sav $HERE/hw/gen2/0004000000172700-20261118-185538.sav \
     $HERE/hw/gen3/0004000003ea7a00-20261118-202244.gbavc \
+    $HERE/hw/gen4/platinum_pksm_2026-7-24.sav $HERE/hw/gen4/d_before_190400.sav \
     $HERE/hw/gen6/0004000000055d00-20261118-204520.main $HERE/hw/gen6/000400000011c500-20261118-205138.main \
     --names $HERE/romfs/i18n/ $HERE/tests/names_eng_today.txt # v0.81 (names step 1, owner: "Go 12")
 

@@ -14,9 +14,11 @@
 #include "storage.h"
 #include "app_paths.h"
 #include "routes.h"
+#include "console_text.hpp" // v0.92: console screens show "Pokemon", not the bytes of "é"
 #include "dbg.h"
 #include "gamematch.hpp"
 #include "gbavc.hpp"
+#include "movecheck.hpp"
 #include "walk_poke.hpp"
 #include "safe_file.h" // v0.81 (review finding 5 / E, owner: "Go 12" (all three))
 
@@ -57,6 +59,9 @@ namespace
         std::string label;
         std::string name;          // the title's name (HOME menu)
         std::vector<u8> original;  // the save as read, for the backup before the first write
+        // v0.89 (docs/SCAN_SPEED_PLAN.md G1, owner: "Yes, start with G1"): the save as it is on the card now - as last
+        // read (scan, reloadSave) or written; checked against the card before every write (stillOnCard). GBA: gbaFile.
+        std::vector<u8> onCard;
         bool backedUp = false;
         int choice    = -1;          // index into kVersions chosen by hand, or -1
         // GBA Virtual Console (inject): `original` is the whole two-slot container
@@ -66,6 +71,10 @@ namespace
         bool gba = false;
         std::vector<u8> gbaFile;       // the container as it is on the card now
         walkerbox::gbavc::Pick gbaPick; // its current slot
+        // v0.91 (review of v0.89, finding 2): a write FAILED and the card could not be read again - the save in
+        // memory is the one from before the edit, but what is on the card is not known; no move is settled from it
+        // until a read from the card (reloadSave) clears this.
+        bool unsure = false;
     };
 
     // --- DS saves (v0.61: Diamond / Pearl / Platinum; user: "ensure that saves from twilight menu can be read and
@@ -89,6 +98,10 @@ namespace
         u32 sum = 0;           // v0.63: FNV-1a of the card save as last read or written - checked before a write
     };
     std::map<u64, DsSource> g_ds;
+    // v0.91 (review of v0.89, finding 1; owner: "Yes, fix 1-3"): set by dsWrite when it refused BEFORE writing
+    // anything (another card in the slot / the card's save changed), so callers treat it as a refused write - as a
+    // swapped 3DS card is (stillOnCard) - not as a failed one. Cleared by the caller before each write.
+    bool g_dsRefused = false;
 
     // v0.63 (console test of v0.62: removing the DS card while PocketPKMN was suspended froze the console; the log
     // never reached the first exit line): pxi:dev is no longer held for the whole run (v0.62 opened it at start) -
@@ -235,12 +248,14 @@ namespace
             if (!dsCardIs(s.code))
             {
                 dbg_printf("storage: DS card write REFUSED: %s is no longer in the slot", s.code.c_str());
+                g_dsRefused = true; // v0.91: nothing written
                 return false;
             }
             std::shared_ptr<u8[]> now(new u8[DS_SAVE_SIZE]);
             if (!dsCardRead(s.cardType, now.get()) || fnv32(now.get(), DS_SAVE_SIZE) != s.sum)
             {
                 dbg_printf("storage: DS card write REFUSED: the card's save is not the one that was read");
+                g_dsRefused = true; // v0.91: nothing written
                 return false;
             }
             PxiDevGuard pxi;
@@ -543,6 +558,41 @@ namespace
 
     // Set the version chosen by hand (if it fits the save's generation) and
     // rebuild the label: chosen version, else the title's name, else PKSM's guess.
+    // v0.94 (FRLG courses): FireRed or LeafGreen? PKSM-Core calls every FRLG save FireRed (the two look alike inside);
+    // the GBA inject's HOME Menu name says which ("LeafGreen" / "Leaf Green", any case), otherwise FireRed. A wrong
+    // guess only picks the other game's version tag: a FireRed origin is legal in a LeafGreen save (Gen 3 has no
+    // handler). NULL = not FireRed / LeafGreen.
+    // v0.97 (RSE courses): also Ruby / Sapphire ("r" / "s", the same inside - "Ruby" in the title name, else Sapphire)
+    // and Emerald ("e", PKSM-Core tells it from the save).
+    const char* gen3Version(const FoundSave& f)
+    {
+        if (!f.sav || f.sav->generation() != pksm::Generation::THREE)
+            return nullptr;
+        std::string n;
+        for (char c : f.name)
+            n += (char)tolower((unsigned char)c);
+        if (f.sav->version() == pksm::GameVersion::E)
+            return "e";
+        if (f.sav->version() == pksm::GameVersion::S || f.sav->version() == pksm::GameVersion::R)
+            return contains(n, "ruby") ? "r" : "s";
+        if (f.sav->version() != pksm::GameVersion::FR)
+            return nullptr;
+        return (contains(n, "leafgreen") || contains(n, "leaf green")) ? "lg" : "fr";
+    }
+
+    // v0.97: where a Gen 3 game keeps its event flags (large block) and its "game clear" flag; 0 = not a Gen 3 game
+    uint32_t gen3FlagsAt(const char* v, int& gameClear)
+    {
+        gameClear = 0;
+        if (!v)
+            return 0;
+        if (!strcmp(v, "fr") || !strcmp(v, "lg"))
+            return gameClear = 0x82C, 0xEE0;
+        if (!strcmp(v, "e"))
+            return gameClear = 0x864, 0x1270;
+        return gameClear = 0x804, 0x1220; // Ruby / Sapphire
+    }
+
     void applyVersionChoice(FoundSave& f, int index)
     {
         pksm::Sav& sav = *f.sav;
@@ -564,6 +614,7 @@ namespace
     bool addDsSave(std::vector<FoundSave>& found, int game, u64 tid, const DsSource& src, std::shared_ptr<u8[]> data,
         const std::string& where)
     {
+        std::vector<u8> asRead(data.get(), data.get() + DS_SAVE_SIZE); // v0.89 (G1): before the save object is made
         std::unique_ptr<pksm::Sav> sav;
         try
         {
@@ -590,6 +641,7 @@ namespace
         f.length  = DS_SAVE_SIZE;
         f.data    = data;
         f.original.assign(data.get(), data.get() + DS_SAVE_SIZE);
+        f.onCard  = std::move(asRead); // v0.89 (G1)
         f.name    = dsGameName(game);
         f.label   = f.name + " - " + sav->otName();
         f.sav     = std::move(sav);
@@ -844,6 +896,8 @@ namespace
                         (unsigned long)length, f.gba ? "GBA save" : "/sav.dat", f.gba ? "3" : "1/2");
                 continue;
             }
+            if (!f.gba)
+                f.onCard = f.original; // v0.89 (G1): the save as read (GBA: its container, gbaFile)
             std::string name = titleName(tid, media);
             fixVersion(*sav, name);
             f.titleId = tid;
@@ -852,6 +906,15 @@ namespace
             f.name    = name;
             f.sav     = std::move(sav);
             applyVersionChoice(f, loadVersionChoice(tid));
+            if (f.gba) // v0.94: FireRed / LeafGreen get the FRLG courses (routes.c)
+            {
+                const char* v = gen3Version(f);
+                routes_note_gen3(tid, v);
+                if (v)
+                    dbg_printf("storage: %016llx: Gen 3 save taken as %s (title name \"%s\")", (unsigned long long)tid,
+                        !strcmp(v, "lg") ? "LeafGreen" : !strcmp(v, "fr") ? "FireRed" : !strcmp(v, "e") ? "Emerald"
+                        : !strcmp(v, "r") ? "Ruby" : "Sapphire", name.c_str()); // v0.97: + Ruby / Sapphire / Emerald
+            }
             int boxes = f.sav->maxBoxes();
             dbg_printf("storage: %016llx%s: %s, %lu bytes, %d boxes of %d", (unsigned long long)tid,
                 media == MEDIATYPE_SD ? "" : " (game card)", f.label.c_str(), (unsigned long)length, boxes,
@@ -1087,6 +1150,30 @@ namespace
         memcpy(o + 0x14, name.data(), std::min<size_t>(name.size(), 23));
     }
 
+    // v0.89 (docs/MOVE_RULES_PLAN.md C1 / W1): did this entry come from this very save? Its origin record (above): the
+    // same game (title ID), the same copy (game card / SD; not compared if the record is older than v0.50 and has none)
+    // and the same trainer (TID, and SID from Gen 3 on; Gen 1/2 have no SID - the trainer name instead).
+    // 0 = another save, 1 = this save, -1 = no origin record (put in before v0.28).
+    int originIsSave(const u8* e, const FoundSave& f)
+    {
+        const u8* o = e + BANK_ORIGIN;
+        if (!e[0] || memcmp(o, "WBO1", 4) != 0)
+            return -1;
+        u64 tid = 0;
+        for (int i = 0; i < 8; i++)
+            tid |= (u64)o[4 + i] << (8 * i);
+        if (tid != f.titleId || (o[0x0F] && o[0x0F] != (u8)(f.media + 1)))
+            return 0;
+        int gen = genNumber(f.sav->generation());
+        if ((u16)(o[0x10] | o[0x11] << 8) != f.sav->TID())
+            return 0;
+        if (gen >= 3)
+            return (u16)(o[0x12] | o[0x13] << 8) == f.sav->SID() ? 1 : 0;
+        char name[24] = {0};
+        memcpy(name, o + 0x14, 23);
+        return f.sav->otName().substr(0, 23) == name ? 1 : 0;
+    }
+
     void bankClear(int box, int slot)
     {
         memset(bankEntry(box, slot), 0, BANK_ENTRY);
@@ -1198,6 +1285,60 @@ namespace
         u8 existed = 0;
         r = FSUSER_ControlSecureSave(SECURESAVE_ACTION_DELETE, &in, sizeof(in), &existed, 1);
         dbg_printf("storage: write: secure value delete %08lx (existed %u)", (unsigned long)r, existed);
+        return true;
+    }
+
+    // v0.89 (docs/SCAN_SPEED_PLAN.md G1, owner: "Yes, start with G1"): right before a game save is written, read it
+    // from the card again and compare it, byte for byte, with what the edit started from (f.onCard; GBA: the whole
+    // container, f.gbaFile). A game card can be swapped while the app waits (at the HOME Menu, or pulled) - also for
+    // another copy of the SAME game, which has the same title ID: writing then would put the first card's save onto
+    // the second card. Different, or not readable = nothing is written. A DS game card is checked by dsWrite itself
+    // (v0.63: its game code + a fingerprint of the whole save, read again right before the write; v0.91: its refusal
+    // sets g_dsRefused, so callers treat it as a refused write too).
+    bool stillOnCard(FoundSave& f, std::string& why)
+    {
+        if (isDsTid(f.titleId))
+        {
+            auto it = g_ds.find(f.titleId);
+            if (it != g_ds.end() && it->second.kind == 1)
+                return true; // dsWrite checks the card
+        }
+        if (f.gba)
+        {
+            std::vector<u8> file;
+            walkerbox::gbavc::Pick pick;
+            std::string gwhy;
+            if (!walkerbox::gbavc::read(f.titleId, file, pick, gwhy))
+                why = "it could not be read again (" + gwhy + ")";
+            else if (f.gbaFile.empty() || file != f.gbaFile)
+                why = "the save on the card is not the one that was read";
+            else
+                return true;
+        }
+        else
+        {
+            std::shared_ptr<u8[]> now;
+            u32 length = 0;
+            Result r   = 0;
+            if (!readUserSave(f.titleId, f.media, f.path, now, length, r))
+                why = "it could not be read again";
+            else if (f.onCard.empty() || length != f.onCard.size() || memcmp(now.get(), f.onCard.data(), length) != 0)
+                why = "the save on the card is not the one that was read";
+            else
+                return true;
+        }
+        dbg_printf("storage: %016llx: write REFUSED before writing: %s (card swapped?)", (unsigned long long)f.titleId,
+            why.c_str());
+        return false;
+    }
+
+    // v0.89 (G1): writeUserSave of the whole save (it reads it back and compares); then f.onCard = those bytes. A
+    // failed write leaves f.onCard as it was - the callers read the save again (reloadSave), which sets it.
+    bool writeAndKeep(FoundSave& f, const u8* data)
+    {
+        if (!writeUserSave(f.titleId, f.media, f.path, data, f.length))
+            return false;
+        f.onCard.assign(data, data + f.length);
         return true;
     }
 
@@ -1333,6 +1474,213 @@ namespace
         return false;
     }
 
+    // --- v0.86 / v0.87 (review finding 6; owner: "Lets do finding 6", then for the advisor's review of v0.86: "Yes,
+    // fix them all"): the "move in progress" mark ------------------------------------------------------------------
+    // A move writes two places, PocketPKMN's box and the game, one after the other (deposit: PocketPKMN first;
+    // withdraw / delivery: the game first). A cut between the two left the Pokemon in BOTH. Entry byte +4 (reserved
+    // until v0.85, 0 in every older bank) carries the move while it is under way, set and confirmed on the card BEFORE
+    // the second write and cleared after it; a marked entry is never sent, and never moved into another save.
+    // v0.87: with the mark goes a MOVE RECORD at entry +0x190 (free: the largest Pokemon stored, PK7, ends at +0xF0;
+    // the origin record starts at +0x1C0): which save the move concerns (title, card / SD, its trainer IDs - not the
+    // Pokemon's origin, F2) and how many Pokemon in that save were THIS Pokemon before the move (boxes and party, F1).
+    // It is settled only against that save, by the count (F5 - twins / clones / in-game trades cannot fool it):
+    //   deposit:  count unchanged = the game was never written -> the PocketPKMN copy goes;  one fewer = written -> mark
+    //             cleared;
+    //   withdraw: one more = written -> the PocketPKMN copy goes;  unchanged = not written -> mark cleared;
+    //   anything else (the player moved / released Pokemon meanwhile): the PocketPKMN copy STAYS, mark cleared - a
+    //   possible extra copy is better than a possible loss. A save that is not here: the entry waits, marked.
+    constexpr int BANK_MOVE    = 4;
+    constexpr u8 MOVE_DEPOSIT  = 1; // in PocketPKMN, the game may still have it
+    constexpr u8 MOVE_WITHDRAW = 2; // still in PocketPKMN, the game may already have it
+    constexpr u32 MV_REC       = 0x190; // "WBM1", u64 title, u8 media + 1, u8 count before, u8 direction, u8 0,
+                                        // u16 TID, u16 SID of the save
+    constexpr u32 MV_REC_LEN   = 0x18;
+
+    u8 bankMove(int box, int slot) { return bankEntry(box, slot)[BANK_MOVE]; }
+
+    // The same Pokemon, even after the game changed it (EXP, nickname, evolution): Gen 3+ PID, trainer IDs and the six
+    // IVs (Gen 6+ also the encryption constant); Gen 1/2 (no PID) the DVs, trainer ID and trainer name (v0.87: was
+    // "the same bytes", which failed as soon as the game copy changed).
+    bool sameMon(const pksm::PKX* a, const pksm::PKX* b)
+    {
+        if (!a || !b || a->species() == pksm::Species::None || b->species() == pksm::Species::None)
+            return false;
+        if (a->generation() != b->generation())
+            return false;
+        static const pksm::Stat st[6] = {pksm::Stat::HP, pksm::Stat::ATK, pksm::Stat::DEF, pksm::Stat::SPATK,
+            pksm::Stat::SPDEF, pksm::Stat::SPD};
+        for (pksm::Stat s : st)
+            if (a->iv(s) != b->iv(s))
+                return false;
+        if (a->TID() != b->TID())
+            return false;
+        int g = genNumber(a->generation());
+        if (g <= 2)
+            return a->otName() == b->otName();
+        if (a->PID() != b->PID() || a->SID() != b->SID())
+            return false;
+        return g < 6 || a->encryptionConstant() == b->encryptionConstant();
+    }
+
+    // How many Pokemon in this save (boxes and party) are `mine` (v0.87: the party too, F1). Day Care, Battle Box and
+    // Pokemon Bank cannot be seen.
+    int countInSave(FoundSave& f, const pksm::PKX* mine)
+    {
+        pksm::Sav& sav = *f.sav;
+        int n = 0, boxes = sav.maxBoxes(), perBox = boxes ? sav.maxSlot() / boxes : 0;
+        for (int b = 0; b < boxes; b++)
+            for (int s = 0; s < perBox; s++)
+            {
+                auto g = sav.pkm((u8)b, (u8)s);
+                n += sameMon(g.get(), mine);
+            }
+        int party = sav.partyCount();
+        for (int s = 0; s < party && s < 6; s++)
+        {
+            auto g = sav.pkm((u8)s);
+            n += sameMon(g.get(), mine);
+        }
+        return n;
+    }
+
+    u64 recTitle(const u8* r)
+    {
+        u64 t = 0;
+        for (int i = 0; i < 8; i++)
+            t |= (u64)r[4 + i] << (8 * i);
+        return t;
+    }
+
+    // Is `f` the very save this entry's move record names (title, card / SD, trainer IDs)?
+    bool recIsSave(const u8* e, FoundSave& f)
+    {
+        const u8* r = e + MV_REC;
+        if (memcmp(r, "WBM1", 4) != 0 || !f.sav)
+            return false;
+        u16 tid = (u16)(r[0x10] | (r[0x11] << 8)), sid = (u16)(r[0x12] | (r[0x13] << 8));
+        return recTitle(r) == f.titleId && r[0x0C] == (u8)(f.media + 1) && tid == f.sav->TID() &&
+               sid == (genNumber(f.sav->generation()) <= 2 ? 0 : f.sav->SID());
+    }
+
+    // Write the mark (and with a mark, the move record; without, the record is cleared) and confirm both on the card
+    // with the entry's data unchanged; up to 3 tries. On failure the entry in memory is put back as it was.
+    bool bankSaveMove(int box, int slot, u8 mark, FoundSave* f = nullptr, int countBefore = 0)
+    {
+        u8* e = bankEntry(box, slot);
+        std::vector<u8> prev(e, e + BANK_ENTRY);
+        u16 len = (u16)(e[2] | (e[3] << 8));
+        if (mark && (!f || !f->sav || len > MV_REC - 8))
+            return false; // (never: the largest Pokemon stored ends long before the record)
+        e[BANK_MOVE] = mark;
+        u8* r = e + MV_REC;
+        memset(r, 0, MV_REC_LEN);
+        if (mark)
+        {
+            memcpy(r, "WBM1", 4);
+            for (int i = 0; i < 8; i++)
+                r[4 + i] = (u8)(f->titleId >> (8 * i));
+            r[0x0C] = (u8)(f->media + 1);
+            r[0x0D] = (u8)(countBefore < 0 ? 0 : countBefore > 255 ? 255 : countBefore);
+            r[0x0E] = mark;
+            u16 tid = f->sav->TID(), sid = genNumber(f->sav->generation()) <= 2 ? 0 : f->sav->SID();
+            r[0x10] = (u8)tid;
+            r[0x11] = (u8)(tid >> 8);
+            r[0x12] = (u8)sid;
+            r[0x13] = (u8)(sid >> 8);
+        }
+        Raw data(e + 8, e + 8 + (len <= BANK_DATA ? len : 0));
+        for (int i = 0; i < 3; i++)
+        {
+            if (bankSave() && bankEntryOnCard(box, slot, data))
+            {
+                FILE* fp = fopen(BANK_PATH, "rb");
+                u8 back[BANK_ENTRY];
+                bool ok = fp && fseek(fp, (long)(BANK_HEADER + (u32)(box * BANK_SLOTS + slot) * BANK_ENTRY), SEEK_SET) == 0 &&
+                          fread(back, 1, BANK_ENTRY, fp) == BANK_ENTRY;
+                if (fp)
+                    fclose(fp);
+                if (ok && back[BANK_MOVE] == mark && memcmp(back + MV_REC, r, MV_REC_LEN) == 0)
+                    return true;
+            }
+            dbg_printf("storage: bank %d/%d move mark %u: save / read-back try %d failed", box + 1, slot + 1, mark,
+                i + 1);
+        }
+        memcpy(e, prev.data(), BANK_ENTRY);
+        return false;
+    }
+
+    // Settle one marked entry against `f`, which must be the save of its move record. 1 = the PocketPKMN copy was the
+    // extra one and is gone, 0 = it stays (mark cleared), -1 = nothing could be saved (still marked).
+    int settleMove(int box, int slot, FoundSave& f)
+    {
+        u8* e = bankEntry(box, slot);
+        const u8 dir = e[BANK_MOVE], before = e[MV_REC + 0x0D];
+        auto mine = bankPkm(box, slot);
+        std::string name = mine ? describe(mine.get()) : std::string("?");
+        int now = mine ? countInSave(f, mine.get()) : -1;
+        bool extra = mine && ((dir == MOVE_DEPOSIT && now == before) || (dir == MOVE_WITHDRAW && now == before + 1));
+        bool written = mine && ((dir == MOVE_DEPOSIT && now + 1 == before) || (dir == MOVE_WITHDRAW && now == before));
+        if (extra)
+        {
+            std::vector<u8> keep(e, e + BANK_ENTRY);
+            bankClear(box, slot);
+            if (!bankSaveChecked(box, slot, {}))
+            {
+                memcpy(bankEntry(box, slot), keep.data(), BANK_ENTRY);
+                dbg_printf("storage: bank %d/%d: extra copy of %s could not be removed (bank save failed)", box + 1,
+                    slot + 1, name.c_str());
+                return -1;
+            }
+            dbg_printf("storage: bank %d/%d: move %u was cut off; %s is in %s (%d -> %d) - the extra PocketPKMN copy "
+                       "was removed", box + 1, slot + 1, dir, name.c_str(), f.label.c_str(), before, now);
+            g_bankNote = name + " was found in " + f.label + "\nafter a move that was cut off. The extra\ncopy in "
+                                                             "PocketPKMN was removed.";
+            return 1;
+        }
+        if (!bankSaveMove(box, slot, 0))
+            return -1;
+        dbg_printf("storage: bank %d/%d: move %u was cut off; %s in %s: %d -> %d - %s; it stays in PocketPKMN",
+            box + 1, slot + 1, dir, name.c_str(), f.label.c_str(), before, now,
+            written ? "settled" : "could not tell (kept, never deleted on a guess)");
+        return 0;
+    }
+
+    // Settle every marked entry whose save (its move record) is in `saves`; the others wait, marked. Entries marked by
+    // v0.86 (no move record): kept, mark cleared (a possible extra copy rather than a possible loss).
+    int resolveMoves(std::vector<FoundSave>& saves)
+    {
+        int settled = 0;
+        if (g_bank.size() != BANK_SIZE) // the bank is not loaded here: nothing to settle
+            return 0;
+        for (int box = 0; box < BANK_BOXES; box++)
+            for (int slot = 0; slot < BANK_SLOTS; slot++)
+            {
+                u8* e = bankEntry(box, slot);
+                if (!e[0] || !e[BANK_MOVE])
+                    continue;
+                if (memcmp(e + MV_REC, "WBM1", 4) != 0)
+                {
+                    if (bankSaveMove(box, slot, 0))
+                        dbg_printf("storage: bank %d/%d: a v0.86 move mark without a record - kept, mark cleared",
+                            box + 1, slot + 1);
+                    continue;
+                }
+                bool here = false;
+                for (FoundSave& f : saves)
+                    if (recIsSave(e, f))
+                    {
+                        here = true;
+                        if (settleMove(box, slot, f) >= 0)
+                            settled++;
+                        break;
+                    }
+                if (!here)
+                    dbg_printf("storage: bank %d/%d: move %u was cut off; its save %016llx is not here - it waits",
+                        box + 1, slot + 1, e[BANK_MOVE], (unsigned long long)recTitle(e + MV_REC));
+            }
+        return settled;
+    }
+
     // Finish the save the way the game would (see source/gamematch.cpp: only
     // the edited box - and for Gen 1 the checksums that cover it - may change;
     // everything PKSM-Core's finishEditing touches beyond that is put back),
@@ -1341,7 +1689,7 @@ namespace
     // the other Gen 3 slot, gamematch.cpp), then written the way the 3DS writes a
     // GBA save (the other container slot, gbavc.cpp); afterwards the save is read
     // again from the card. `before` is the save as it was before the edit.
-    void reloadSave(FoundSave& f);
+    bool reloadSave(FoundSave& f); // v0.89: true = read again from the card
 
     // v0.50 (audit S1): *refused = true when it gave up before writing anything (the game save is unchanged).
     bool commitGame(FoundSave& f, int editedBox, const std::vector<u8>& before, bool* refused = nullptr)
@@ -1350,6 +1698,13 @@ namespace
         std::string note;
         if (refused)
             *refused = false;
+        std::string changed;
+        if (!stillOnCard(f, changed)) // v0.89 (G1): nothing written - the callers handle it as a refused write
+        {
+            if (refused)
+                *refused = true;
+            return false;
+        }
         if (f.gba)
         {
             if (before.size() != f.length || !walkerbox::gameMatchFinish3(sav, before.data(), f.length, note))
@@ -1387,7 +1742,7 @@ namespace
                 return false;
             }
             dbg_printf("storage: %s", note.c_str());
-            return writeUserSave(f.titleId, f.media, f.path, sav.rawData().get(), f.length);
+            return writeAndKeep(f, sav.rawData().get()); // v0.89 (G1): f.onCard = what was written
         }
         if (sav.generation() == pksm::Generation::SEVEN) // v0.56 (user's Moon pair: tests/test_gen7.cpp)
         {
@@ -1400,7 +1755,7 @@ namespace
                 return false;
             }
             dbg_printf("storage: %s", note.c_str());
-            return writeUserSave(f.titleId, f.media, f.path, sav.rawData().get(), f.length);
+            return writeAndKeep(f, sav.rawData().get()); // v0.89 (G1): f.onCard = what was written
         }
         if (sav.generation() == pksm::Generation::FOUR) // v0.62 (user's Diamond + Platinum pairs: tests/test_gen4.cpp)
         {
@@ -1415,7 +1770,10 @@ namespace
             dbg_printf("storage: %s", note.c_str());
             // v0.67: the new boxes copy is in the other half; the save object still looks at the old one - take
             // what is on the card now (as after a Gen 3 write)
+            g_dsRefused = false;
             bool ok = writeUserSave(f.titleId, f.media, f.path, sav.rawData().get(), f.length);
+            if (!ok && g_dsRefused && refused) // v0.91 (finding 1): dsWrite refused before writing = a refused write
+                *refused = true;
             reloadSave(f);
             return ok;
         }
@@ -1423,39 +1781,42 @@ namespace
         dbg_printf("storage: %s (%lu byte(s) put back)", note.c_str(), (unsigned long)restored);
         if (sav.rawData().get() != f.data.get())
             dbg_printf("storage: note: the save object uses its own buffer");
-        bool ok = writeUserSave(f.titleId, f.media, f.path, sav.rawData().get(), f.length);
+        bool ok = writeAndKeep(f, sav.rawData().get()); // v0.89 (G1): before beginEditing (it may change the buffer)
         sav.beginEditing();
         return ok;
     }
 
     // After a failed write (and after every Gen 3 write): forget the edits and read
     // the save again from the card, so what is shown is what is really there.
-    void reloadSave(FoundSave& f)
+    bool reloadSave(FoundSave& f)
     {
         std::shared_ptr<u8[]> data;
         u32 length = 0;
         Result why = 0;
         std::unique_ptr<pksm::Sav> sav;
         bool got = false;
+        // v0.89 (G1): the GBA container is taken over only together with the save read from it (a container newer
+        // than the save object would let the check before the next write pass for data that is not on the card)
+        std::vector<u8> file;
+        walkerbox::gbavc::Pick pick;
         if (f.gba)
         {
-            std::vector<u8> file;
-            walkerbox::gbavc::Pick pick;
             std::string gwhy;
             if (walkerbox::gbavc::read(f.titleId, file, pick, gwhy))
             {
                 length = pick.saveSize;
                 data   = std::shared_ptr<u8[]>(new u8[length]);
                 memcpy(data.get(), file.data() + pick.saveOfs, length);
-                f.gbaFile = std::move(file);
-                f.gbaPick = pick;
-                got       = true;
+                got    = true;
             }
             else
                 dbg_printf("storage: GBA re-read failed: %s", gwhy.c_str());
         }
         else
             got = readUserSave(f.titleId, f.media, f.path, data, length, why);
+        std::vector<u8> asRead; // v0.89 (G1): copied before the save object is made on the same buffer
+        if (got && !f.gba)
+            asRead.assign(data.get(), data.get() + length);
         if (got)
         {
             try
@@ -1470,14 +1831,79 @@ namespace
         if (!sav)
         {
             dbg_printf("storage: reload from the card FAILED");
-            return;
+            return false;
         }
         fixVersion(*sav, f.name);
         f.data   = data;
         f.length = length;
         f.sav    = std::move(sav);
+        if (f.gba)
+        {
+            f.gbaFile = std::move(file);
+            f.gbaPick = pick;
+        }
+        else
+            f.onCard = std::move(asRead); // v0.89 (G1): what is on the card now
+        f.unsure = false;                 // v0.91: read from the card
         applyVersionChoice(f, f.choice); // keep the version chosen by hand
         dbg_printf("storage: save reloaded from the card");
+        return true;
+    }
+
+    // v0.89 (docs/MOVE_RULES_PLAN.md D1; owner's console test: Moon swapped for X, the refused move hid Wingull until
+    // the screen was left): after a REFUSED write nothing reached the card, so when the card cannot be read again
+    // (card out / swapped) the save in memory is made again from the bytes it had before the edit - what is shown is
+    // then what that save holds. f.onCard / gbaFile stay as they were: the check before any later write (G1) still
+    // compares with the card.
+    void restoreSave(FoundSave& f, const std::vector<u8>& before)
+    {
+        if (before.size() != f.length)
+            return;
+        std::shared_ptr<u8[]> data(new u8[f.length]);
+        memcpy(data.get(), before.data(), f.length);
+        std::unique_ptr<pksm::Sav> sav;
+        try
+        {
+            sav = pksm::Sav::getSave(data, f.length);
+        }
+        catch (...)
+        {
+            sav = nullptr;
+        }
+        if (!sav)
+        {
+            dbg_printf("storage: the save as before the move could not be made again");
+            return;
+        }
+        fixVersion(*sav, f.name);
+        f.data = data;
+        f.sav  = std::move(sav);
+        applyVersionChoice(f, f.choice);
+        dbg_printf("storage: card not readable - the save is shown as it was before the move (nothing was written)");
+    }
+
+    // a refused write: read the save again; if the card cannot be read, show it as it was before the edit (D1)
+    // v0.91 (review of v0.89, finding 2): also used where nothing was written for another reason (safety check,
+    // PocketPKMN box not saved) - an edit that never reached the card must never stay in memory: the next write
+    // (whose check compares the card with f.onCard, still equal) would otherwise write it.
+    void afterRefused(FoundSave& f, const std::vector<u8>& before)
+    {
+        if (!reloadSave(f))
+            restoreSave(f, before);
+    }
+
+    // v0.91 (finding 2): after a write that FAILED (it may have reached the card in part): read the save again; if the
+    // card cannot be read, the save in memory is made from `before` (never the unwritten edit) and marked unsure - no
+    // count is trusted from it until a real read. The check before the next write still compares with f.onCard, so a
+    // card that did change is refused. true = read from the card.
+    bool afterFailed(FoundSave& f, const std::vector<u8>& before)
+    {
+        if (reloadSave(f))
+            return true;
+        restoreSave(f, before);
+        f.unsure = true;
+        dbg_printf("storage: the write failed and the card could not be read again - nothing is settled until it is");
+        return false;
     }
 
     bool askOnBottom(const std::string& question);
@@ -1611,7 +2037,7 @@ namespace
             waitKeys(KEY_A | KEY_B);
             return;
         }
-        printf("RESTORE GAME SAVE\n\n%s\n\nfrom backup\n%s\n\n", f.label.c_str(), newest.c_str());
+        printf("RESTORE GAME SAVE\n\n%s\n\nfrom backup\n%s\n\n", consolePlain(f.label).c_str(), newest.c_str());
         printf("Everything moved since then is\nundone in the game (PocketPKMN's\nboxes are not changed).\n");
         std::vector<std::string> lost, doubled;
         if (!restoreImpact(f, data, lost, doubled))
@@ -1641,6 +2067,17 @@ namespace
         }
         else if (!askOnBottom("Restore it?"))
             return;
+        std::string changed;
+        if (!stillOnCard(f, changed)) // v0.89 (G1): the card may have been swapped while the questions were open
+        {
+            reloadSave(f);
+            dbg_flush(LOG_PATH);
+            consoleSelect(g_bottom);
+            printf("\nNot restored: %s\n(card swapped?). Nothing was written.\n\nA/B: back\n", changed.c_str());
+            refresh();
+            waitKeys(KEY_A | KEY_B);
+            return;
+        }
         bool ok;
         if (f.gba)
         {
@@ -1732,6 +2169,19 @@ namespace
         }
         std::string name = describe(pk.get());
         Raw moved(raw.begin(), raw.end());
+        // v0.87 (finding 6, F4): an earlier move of this very Pokemon that is still marked (not settled) = no second copy
+        for (int b = 0; b < BANK_BOXES; b++)
+            for (int s = 0; s < BANK_SLOTS; s++)
+                if (bankGen(b, s) && bankMove(b, s) && sameMon(bankPkm(b, s).get(), pk.get()))
+                {
+                    msg = "An earlier move of it was cut off\n(PocketPKMN box " + std::to_string(b + 1) + ", slot " +
+                          std::to_string(s + 1) + "). Open the game\nlist again to settle it first.";
+                    dbg_printf("storage: deposit of %s refused: bank %d/%d holds a marked copy", name.c_str(), b + 1,
+                        s + 1);
+                    return false;
+                }
+        // v0.87 (finding 6, F5): how many Pokemon in this save are this one BEFORE the move (normally 1; twins count)
+        const int countBefore = countInSave(f, pk.get());
 
         // 1. Edit the save in memory and check that nothing but this Pokemon changed.
         std::vector<u8> beforeRaw(sav.rawData().get(), sav.rawData().get() + f.length);
@@ -1740,7 +2190,7 @@ namespace
         std::string why;
         if (!onlyThisChanged(before, takeSnapshot(*f.sav), gbox, true, moved, why))
         {
-            reloadSave(f);
+            afterRefused(f, beforeRaw); // v0.91 (finding 2): never keep the unwritten edit
             msg = "Safety check failed (" + why + ").\nNothing was written.";
             dbg_printf("storage: deposit of %s REFUSED by the safety check: %s", name.c_str(), why.c_str());
             return false;
@@ -1748,11 +2198,13 @@ namespace
         // 2. Store it in WalkerBox and confirm what reached the card.
         bankPut(bbox, free, gameGen, moved);
         bankSetOrigin(bbox, free, f, gameGen);
-        if (!bankSave() || !bankEntryOnCard(bbox, free, moved))
+        // v0.86 (finding 6): saved WITH the "deposit in progress" mark, confirmed on the card, before the game write;
+        // v0.87: with the move record (this save, the count before)
+        if (!bankSaveMove(bbox, free, MOVE_DEPOSIT, &f, countBefore) || !bankEntryOnCard(bbox, free, moved))
         {
             bankClear(bbox, free);
             bankSave();
-            reloadSave(f);
+            afterRefused(f, beforeRaw); // v0.91 (finding 2)
             msg = "Could not save the PocketPKMN box.\nNothing was moved.";
             dbg_printf("storage: deposit of %s: bank save / read-back failed", name.c_str());
             return false;
@@ -1763,7 +2215,11 @@ namespace
         bool refused = false;
         if (!commitGame(f, gbox, beforeRaw, &refused))
         {
-            reloadSave(f);
+            bool readAgain = true; // v0.91 (finding 2): false = the card could not be read, its count is not known
+            if (refused) // v0.89 (D1): nothing written - if the card cannot be read, show it as before
+                afterRefused(f, beforeRaw);
+            else
+                readAgain = afterFailed(f, beforeRaw);
             if (refused) // v0.50 (audit S1): nothing reached the game, so take the PocketPKMN copy out again
             {
                 std::vector<u8> keep(bankEntry(bbox, free), bankEntry(bbox, free) + BANK_ENTRY);
@@ -1777,11 +2233,33 @@ namespace
                 memcpy(bankEntry(bbox, free), keep.data(), BANK_ENTRY); // as on the card
                 blockSlot(bbox, free);
             }
+            else if (readAgain && countInSave(f, pk.get()) == countBefore)
+            {
+                // v0.87 (finding 6, F4): the write failed and the reloaded save still has it (nothing reached the game):
+                // the PocketPKMN copy goes again at once, so a retry cannot make a second one
+                std::vector<u8> keep(bankEntry(bbox, free), bankEntry(bbox, free) + BANK_ENTRY);
+                bankClear(bbox, free);
+                if (bankSaveChecked(bbox, free, {}))
+                {
+                    msg = "Writing the game save FAILED.\nIt is still in the game.\nNothing was moved.";
+                    dbg_printf("storage: deposit of %s: game write failed, still in the game - bank copy taken out "
+                               "again", name.c_str());
+                    return false;
+                }
+                memcpy(bankEntry(bbox, free), keep.data(), BANK_ENTRY); // as on the card (marked: settled later)
+                blockSlot(bbox, free);
+            }
+            else
+                blockSlot(bbox, free); // marked: the next scan settles it; no retry from this copy meanwhile
             msg = "Writing the game save FAILED.\nThe Pokemon is now in both places.";
             dbg_printf("storage: deposit of %s: game write failed (copy kept in bank %d/%d)", name.c_str(),
                 bbox + 1, free + 1);
             return false;
         }
+        // v0.86 (finding 6): the game no longer has it - the mark goes (if this save fails, the mark stays and the
+        // next games scan settles it: not in the game -> cleared)
+        if (!bankSaveMove(bbox, free, 0))
+            dbg_printf("storage: deposit of %s: clearing the move mark failed (settled at the next scan)", name.c_str());
         msg = "Moved " + name + " to PocketPKMN.";
         dbg_printf("storage: deposit %s from %s box %d slot %d -> bank %d/%d", name.c_str(),
             f.label.c_str(), gbox + 1, cur + 1, bbox + 1, free + 1);
@@ -1846,30 +2324,58 @@ namespace
             return false;
         }
         std::string name = describe(pk.get());
+        // v0.89 (docs/MOVE_RULES_PLAN.md V1): never into a game version that does not have it (read only). Not for
+        // its own save: it was there, so it can go back (the walked Pokemon, its catches - made for that game)
+        std::string missing = originIsSave(bankEntry(bbox, cur), f) == 1 ? "" : walkerbox::moveCheck(sav, *pk);
+        if (!missing.empty())
+        {
+            std::string game = f.name.empty() ? i18n::game(pksm::Language::ENG, sav.version()) : f.name;
+            msg = missing + "\ndoes not exist in " + game + ".\nNothing was moved.";
+            dbg_printf("storage: withdraw of %s into %s REFUSED by the version check: %s", name.c_str(),
+                f.label.c_str(), missing.c_str());
+            return false;
+        }
         Raw moved = rawOf(pk.get());
-
-        // v0.50 (audit S3): the very same Pokemon (byte for byte) already in this game = an earlier put-back reached
-        // the game but the bank kept its copy. Drop the bank copy instead of making a second one.
-        for (int b = 0; b < boxes; b++)
-            for (int s = 0; s < perBox; s++)
-                if (rawOf(sav.pkm((u8)b, (u8)s).get()) == moved)
-                {
-                    bankClear(bbox, cur);
-                    if (!bankSaveChecked(bbox, cur, {}))
-                    {
-                        msg = "It is already in the game, but the\nPocketPKMN box could not be saved.";
-                        return false;
-                    }
-                    msg = name + " was already back in the game\n(box " + std::to_string(b + 1) + ", slot " +
-                          std::to_string(s + 1) + "). The extra copy\nin PocketPKMN was removed.";
-                    dbg_printf("storage: withdraw of %s: already in %s box %d slot %d - bank copy removed",
-                        name.c_str(), f.label.c_str(), b + 1, s + 1);
-                    if (outBox)
-                        *outBox = b;
-                    if (outSlot)
-                        *outSlot = s;
-                    return true;
-                }
+        // v0.87 (finding 6): an earlier move of this entry was cut off (marked). F3: it may only go into the save its
+        // move record names - into any other save it could become a second copy while that save (not in the console)
+        // still has it. There it is settled first, by the count (F5): the extra copy goes, or the mark is cleared.
+        // (v0.50's byte-for-byte "already in the game" check is gone: with two identical clones it removed one even
+        // without any cut - the advisor's F5. Cut put-backs are marked since v0.86, so the mark covers that case.)
+        if (bankMove(bbox, cur))
+        {
+            if (!recIsSave(bankEntry(bbox, cur), f))
+            {
+                msg = "Its last move was cut off. It can\nonly go back into the save it was\nmoving to (open the game "
+                      "list with\nthat game in to settle it).";
+                dbg_printf("storage: withdraw of %s refused: marked for another save", name.c_str());
+                return false;
+            }
+            if (f.unsure) // v0.91 (finding 2): the last write failed and the card was not read since - never count it
+            {
+                msg = "Its last move was cut off, and the\ngame card could not be read since.\nOpen the game list again\n"
+                      "to settle it.";
+                dbg_printf("storage: withdraw of %s refused: its save was not read since a failed write", name.c_str());
+                return false;
+            }
+            int r = settleMove(bbox, cur, f);
+            if (r < 0)
+            {
+                msg = "Its last move was cut off, and the\nPocketPKMN box could not be saved.\nNothing was moved.";
+                return false;
+            }
+            if (r == 1)
+            {
+                msg = name + " was already in the game\n(a move that was cut off). The\nextra copy in PocketPKMN was "
+                             "removed.";
+                if (outBox)
+                    *outBox = -1;
+                if (outSlot)
+                    *outSlot = -1;
+                return true;
+            }
+        }
+        // v0.87 (finding 6, F5): how many Pokemon in this save are this one BEFORE the move (normally 0; twins count)
+        const int countBefore = countInSave(f, pk.get());
 
         // 1. Edit the save in memory and check that nothing but this Pokemon
         //    changed and that it arrives as an exact copy.
@@ -1879,16 +2385,40 @@ namespace
         std::string why;
         if (!onlyThisChanged(before, takeSnapshot(*f.sav), gbox, false, moved, why))
         {
-            reloadSave(f);
+            afterRefused(f, beforeRaw); // v0.91 (finding 2): never keep the unwritten edit
             msg = "Safety check failed (" + why + ").\nNothing was written.";
             dbg_printf("storage: withdraw of %s REFUSED by the safety check: %s", name.c_str(),
                 why.c_str());
             return false;
         }
-        // 2. Write the game with it.
-        if (!commitGame(f, gbox, beforeRaw))
+        // v0.86 (finding 6): "withdraw in progress" on the card before the game gets it (a cut after the game write
+        // then cannot leave an unmarked second copy); a mark that cannot be saved = nothing is moved
+        if (!bankSaveMove(bbox, cur, MOVE_WITHDRAW, &f, countBefore)) // v0.87: with the move record
         {
-            reloadSave(f);
+            afterRefused(f, beforeRaw); // v0.91 (finding 2)
+            msg = "Could not save the PocketPKMN box.\nNothing was moved.";
+            dbg_printf("storage: withdraw of %s: move mark could not be saved - not moved", name.c_str());
+            return false;
+        }
+        // 2. Write the game with it.
+        bool refused = false;
+        if (!commitGame(f, gbox, beforeRaw, &refused))
+        {
+            if (refused) // v0.89 (D1): nothing written - if the card cannot be read, show it as before
+                afterRefused(f, beforeRaw);
+            else
+                afterFailed(f, beforeRaw); // v0.91 (finding 2); the mark stays either way (below)
+            if (refused) // v0.87: refused before anything was written - the mark goes at once (no block until a scan)
+            {
+                if (!bankSaveMove(bbox, cur, 0))
+                    dbg_printf("storage: withdraw of %s: clearing the move mark failed (settled at the next scan)",
+                        name.c_str());
+                msg = "The game save could not be changed\n(its safety check refused).\nIt stays in PocketPKMN.";
+                dbg_printf("storage: withdraw of %s: game write refused", name.c_str());
+                return false;
+            }
+            // the mark stays: a failed write may have reached the game in part - the next games scan looks in the game
+            // and settles it by the count
             msg = "Writing the game save FAILED.\nThe Pokemon stays in PocketPKMN.";
             dbg_printf("storage: withdraw of %s: game write failed", name.c_str());
             return false;
@@ -1904,7 +2434,9 @@ namespace
         {
             memcpy(bankEntry(bbox, cur), keep.data(), BANK_ENTRY); // as on the card
             blockSlot(bbox, cur);
-            msg = "Moved, but the PocketPKMN box could\nnot be saved: the copy left in\nPocketPKMN is locked. Restart\nPocketPKMN and put it back again:\nthe extra copy is then removed.";
+            // v0.87: the copy left on the card is marked (withdraw, with its record): the next games scan removes it
+            msg = "Moved, but the PocketPKMN box could\nnot be saved: the copy left in\nPocketPKMN is locked. The next "
+                  "time\nthe game list opens, the extra copy\nis removed.";
             dbg_printf("storage: withdraw of %s: bank save failed (copy in both, slot blocked)", name.c_str());
             return true;
         }
@@ -1939,13 +2471,13 @@ namespace
             consoleClear();
             if (party)
             {
-                printf("%s\nParty (%u) - read only\n\n", f.label.c_str(), sav.partyCount());
+                printf("%s\nParty (%u) - read only\n\n", consolePlain(f.label).c_str(), sav.partyCount());
                 for (int s = 0; s < sav.partyCount() && s < 6; s++)
                     printf("%2d %s\n", s + 1, describe(sav.pkm((u8)s).get()).c_str());
             }
             else
             {
-                printf("%s%s\nBox %d/%d: %s\n", side == 0 ? "> " : "  ", f.label.c_str(), gbox + 1, boxes,
+                printf("%s%s\nBox %d/%d: %s\n", side == 0 ? "> " : "  ", consolePlain(f.label).c_str(), gbox + 1, boxes,
                     sav.boxName((u8)gbox).c_str());
                 int grows = (perBox + 1) / 2;
                 for (int row = 0; row < grows; row++)
@@ -2046,7 +2578,46 @@ namespace
             if (side == 0)
                 depositOne(f, gbox, cur, bbox, -1, msg);
             else
+            {
+                // v0.89 (docs/MOVE_RULES_PLAN.md C1; owner: "From the box, I would like a clear this isn't its own
+                // game move it anyway confirmation"): only asked when the move could go ahead otherwise (same
+                // generation, not walking, no cut-off move, the version check passes) - withdrawOne says why if not
+                const u8* e = bankEntry(bbox, cur);
+                int own     = originIsSave(e, f);
+                auto bp     = own == 1 ? nullptr : bankPkm(bbox, cur);
+                if (bp && e[0] == genNumber(sav.generation()) && !(e[1] & 0x01) && !bankMove(bbox, cur) &&
+                    !slotBlocked(bbox, cur) && walkerbox::moveCheck(sav, *bp).empty())
+                {
+                    std::string q;
+                    if (own < 0)
+                        q = "Its game is not recorded (it was\nstored before v0.28). Move it into\n" + f.label +
+                            "\nanyway?";
+                    else
+                    {
+                        const u8* o = e + BANK_ORIGIN;
+                        char ot[24] = {0};
+                        memcpy(ot, o + 0x14, 23);
+                        u64 tid = 0;
+                        for (int i = 0; i < 8; i++)
+                            tid |= (u64)o[4 + i] << (8 * i);
+                        std::string from = i18n::game(pksm::Language::ENG, (pksm::GameVersion)o[0x0E]) + " - " + ot;
+                        if (tid == f.titleId && o[0x0F] && o[0x0F] != (u8)(f.media + 1))
+                            from += o[0x0F] == MEDIATYPE_GAME_CARD + 1 ? " (game card)" : " (SD card)";
+                        q = describe(bp.get()) + "\ncame from " + from + ".\nThis is " + f.label +
+                            ",\nnot its own game. Move it anyway?";
+                    }
+                    consoleSelect(g_bottom);
+                    consoleClear();
+                    bool yes = askOnBottom(q);
+                    dbg_printf("storage: not its own game (%s) - asked: %s", f.label.c_str(), yes ? "moved anyway" : "no");
+                    if (!yes)
+                    {
+                        msg = "Not moved.";
+                        continue;
+                    }
+                }
                 withdrawOne(f, bbox, cur, gbox, false, msg, nullptr, nullptr);
+            }
             dbg_flush(LOG_PATH);
         }
     }
@@ -2076,6 +2647,7 @@ extern "C" void storage_browse(PrintConsole* top, PrintConsole* bottom)
         return;
     }
     std::vector<FoundSave> saves = scanVcSaves();
+    resolveMoves(saves); // v0.86 (finding 6): moves cut off earlier are settled before anything else
     dbg_flush(LOG_PATH);
     if (saves.empty())
     {
@@ -2091,7 +2663,7 @@ extern "C" void storage_browse(PrintConsole* top, PrintConsole* bottom)
         consoleClear();
         printf("MOVE POKEMON\n\nSaves found:\n\n");
         for (int i = 0; i < n; i++)
-            printf(" %c %s\n", i == sel ? '>' : ' ', saves[i].label.c_str());
+            printf(" %c %s\n", i == sel ? '>' : ' ', consolePlain(saves[i].label).c_str());
         consoleSelect(g_bottom);
         consoleClear();
         printf("Up/Down: choose  A: open  B: back\nX: restore the newest backup of\n   the chosen game\n");
@@ -2176,6 +2748,12 @@ extern "C" int storage_walk_prepare(int box, int slot, wbx_walk_poke* out, int* 
     if (slotBlocked(box, slot)) // v0.50 (audit S3): never send a copy that is also in a game
     {
         setWhy(why, why_size, "This PocketPKMN copy is also in a game\n(a save failed). Restart PocketPKMN first.");
+        return -1;
+    }
+    if (bankMove(box, slot)) // v0.86 (finding 6): its last move was cut off and is not settled yet
+    {
+        setWhy(why, why_size, "Its last move was cut off. PocketPKMN\nchecks it against its game first: put\nthe game in "
+                              "(cartridge) and open\nthe game list again.");
         return -1;
     }
     auto pk = bankPkm(box, slot);
@@ -2349,6 +2927,7 @@ extern "C" int storage_walk_return(int box, int slot, unsigned long fingerprint,
         res->ev_stat       = g.evStat;
         res->ev_before     = g.evBefore;
         res->ev_after      = g.evAfter;
+        res->ev_limited    = g.evLimited ? (g.levelBefore >= 100 ? 2 : 1) : 0; // v0.95
     }
     if (new_fp)
         *new_fp = storage_walk_fingerprint(box, slot);
@@ -2430,7 +3009,7 @@ namespace
             int rows = (perBox + 1) / 2;
             consoleSelect(g_top);
             consoleClear();
-            printf("%s\nBox %d/%d: %s\n", f.label.c_str(), gbox + 1, boxes, sav.boxName((u8)gbox).c_str());
+            printf("%s\nBox %d/%d: %s\n", consolePlain(f.label).c_str(), gbox + 1, boxes, sav.boxName((u8)gbox).c_str());
             for (int row = 0; row < rows; row++)
             {
                 int a = row, b = row + rows;
@@ -2512,6 +3091,7 @@ extern "C" int storage_return_to_game(char* msg, int msg_size)
     }
     GbaSessionGuard gba;
     std::vector<FoundSave> saves = scanVcSaves();
+    resolveMoves(saves); // v0.86 (finding 6): moves cut off earlier are settled before anything else
     // v0.50 (audit S7): the copy it came from (game card or SD), if recorded. Only that copy, or with the user's
     // OK another copy of the same game when that one is not here.
     int recMedia = bankEntry(bb, bs)[BANK_ORIGIN + 0x0F] - 1; // -1 = not recorded
@@ -2546,8 +3126,9 @@ extern "C" int storage_return_to_game(char* msg, int msg_size)
         dbg_flush(LOG_PATH);
         if (ok)
         {
-            setWhy(msg, msg_size, "Back in " + f.name + "\n(box " + std::to_string(gb + 1) + ", slot " +
-                                      std::to_string(gs + 1) + ").");
+            setWhy(msg, msg_size, gb < 0 ? "Back in " + f.name + "\n(it was already there)." // v0.87: settled
+                                         : "Back in " + f.name + "\n(box " + std::to_string(gb + 1) + ", slot " +
+                                               std::to_string(gs + 1) + ").");
             return 1;
         }
         setWhy(msg, msg_size, m + "\nIt waits in the walker slot.");
@@ -2605,6 +3186,7 @@ extern "C" int storage_pick_for_walk(PrintConsole* top, PrintConsole* bottom)
         return 0;
     }
     std::vector<FoundSave> saves = scanVcSaves();
+    resolveMoves(saves); // v0.86 (finding 6): moves cut off earlier are settled before anything else
     dbg_flush(LOG_PATH);
     if (saves.empty())
     {
@@ -2618,7 +3200,7 @@ extern "C" int storage_pick_for_walk(PrintConsole* top, PrintConsole* bottom)
         consoleClear();
         printf("SEND TO WALKER\n\nChoose the game whose Pokemon\ngoes for a walk:\n\n");
         for (int i = 0; i < n; i++)
-            printf(" %c %s\n", i == sel ? '>' : ' ', saves[i].label.c_str());
+            printf(" %c %s\n", i == sel ? '>' : ' ', consolePlain(saves[i].label).c_str());
         consoleSelect(g_bottom);
         consoleClear();
         printf("Up/Down: choose  A: use this game\nB: back\n");
@@ -2700,6 +3282,22 @@ namespace
         }
         if (gen == 6 && (f.sav->version() == pksm::GameVersion::X || f.sav->version() == pksm::GameVersion::Y))
             return f.length > 0x195B3 && (d[0x195B3] & 0x80) != 0;
+        // v0.93 (ORAS courses): the same block at 0x19E00 (PKHeX SAV6AO, read with "pkhex-check hof6" on the
+        // owner's Alpha Sapphire saves: entry 0's index at 0x19FB0) -> byte 0x19FB3 bit 7
+        if (gen == 6 && (f.sav->version() == pksm::GameVersion::OR || f.sav->version() == pksm::GameVersion::AS))
+            return f.length > 0x19FB3 && (d[0x19FB3] & 0x80) != 0;
+        // v0.94 (FRLG courses): FireRed / LeafGreen set the system flag "game clear" (0x82C, pokefirered
+        // FLAG_SYS_GAME_CLEAR = SYS_FLAGS 0x800 + 0x2C) when the Hall of Fame is first entered; read with
+        // gamematch.cpp gen3FlagFRLG (badges 0x820-0x827 alike, PKSM-Core). Checked on PKHeX-made FireRed / LeafGreen saves
+        // (pkhex-check blank3, tests/test_frlg.cpp via tests/run_catches.sh).
+        // v0.97: and Ruby / Sapphire / Emerald (pokeruby / pokeemerald FLAG_SYS_GAME_CLEAR = SYSTEM_FLAGS + 4: 0x804 /
+        // 0x864), each at its own flag place (gen3FlagsAt; checked on PKHeX-made saves in tests/test_frlg.cpp)
+        if (gen == 3)
+        {
+            int clear       = 0;
+            uint32_t flagAt = gen3FlagsAt(gen3Version(f), clear);
+            return flagAt && walkerbox::gen3Flag(f.sav->rawData().get(), f.length, flagAt, clear) == 1 ? 1 : 0;
+        }
         if (gen == 4) // v0.61: PKHeX SAV4.SecondsToFame - the play time of the first Hall of Fame entry, 0 = never; at
                       // +0x3C of the current general block (found in the user's Platinum save, both copies)
         {
@@ -2788,6 +3386,7 @@ extern "C" int storage_games_scan(storage_game_info* out, int max, char* why, in
     }
     g_gbaGuard = std::make_unique<GbaSessionGuard>();
     g_games    = scanVcSaves();
+    resolveMoves(g_games); // v0.86 (finding 6): moves cut off earlier are settled at every games scan (start-up too)
     g_gameEntered.assign(g_games.size(), false);
     dbg_flush(LOG_PATH);
     int n = 0;
@@ -3143,6 +3742,7 @@ extern "C" int storage_deliver_catches(const unsigned char* entry, const storage
     std::vector<u8> origin(entry + BANK_ORIGIN, entry + BANK_ENTRY);
     GbaSessionGuard gba;
     std::vector<FoundSave> saves = scanVcSaves();
+    resolveMoves(saves); // v0.86 (finding 6): moves cut off earlier are settled before anything else
     FoundSave* fs = entrySave(saves, entry, tid);
     if (!fs)
     {
@@ -3160,6 +3760,25 @@ extern "C" int storage_deliver_catches(const unsigned char* entry, const storage
     {
         tplFile = "romfs:/routes/catch_xy.bin";
         vi      = ver == pksm::GameVersion::X ? 0 : 1;
+    }
+    else if (gen == 3 && gen3Version(f)) // v0.94: FireRed / LeafGreen (tools/routes_frlg.py, templates FR LG)
+    {
+        const char* v3 = gen3Version(f);
+        if (!strcmp(v3, "fr") || !strcmp(v3, "lg"))
+        {
+            tplFile = "romfs:/routes/catch_frlg.bin";
+            vi      = strcmp(v3, "lg") ? 0 : 1;
+        }
+        else // v0.97: Ruby / Sapphire / Emerald (tools/routes_rse.py, templates R S E)
+        {
+            tplFile = "romfs:/routes/catch_rse.bin";
+            vi      = !strcmp(v3, "r") ? 0 : !strcmp(v3, "s") ? 1 : 2;
+        }
+    }
+    else if (gen == 6 && (ver == pksm::GameVersion::OR || ver == pksm::GameVersion::AS)) // v0.93 (tools/routes_oras.py)
+    {
+        tplFile = "romfs:/routes/catch_oras.bin";
+        vi      = ver == pksm::GameVersion::OR ? 0 : 1;
     }
     else if (gen == 2)
     {
@@ -3292,8 +3911,8 @@ extern "C" int storage_deliver_catches(const unsigned char* entry, const storage
         if (canMove && withdrawOne(f, bb, bs, 0, true, m, &gb, &gs))
         {
             delivered++;
-            out += std::string(pk->shiny() ? "A shiny " : "") + name + " is now in " + f.name + " (box " +
-                   std::to_string(gb + 1) + ").\n";
+            out += std::string(pk->shiny() ? "A shiny " : "") + name + " is now in " + f.name +
+                   (gb < 0 ? std::string(".\n") : " (box " + std::to_string(gb + 1) + ").\n"); // v0.87: -1 = settled
         }
         else
             out += name + " waits in PocketPKMN: " + (canMove ? m : ready) + "\n";
@@ -3326,6 +3945,7 @@ extern "C" int storage_deliver_items(const unsigned char* entry, const storage_f
     }
     GbaSessionGuard gba;
     std::vector<FoundSave> saves = scanVcSaves();
+    resolveMoves(saves); // v0.86 (finding 6): moves cut off earlier are settled before anything else
     FoundSave* fs = entrySave(saves, entry, tid);
     if (fs && fs->gba)
     {
@@ -3384,17 +4004,45 @@ extern "C" int storage_deliver_items(const unsigned char* entry, const storage_f
             out += name + ": not stored (the safety check refused).\n";
             continue; // gameMatchItems put the save back
         }
-        if (!writeUserSave(f.titleId, f.media, f.path, f.sav->rawData().get(), f.length))
+        std::string changed;
+        if (!stillOnCard(f, changed)) // v0.89 (G1): nothing written
         {
-            reloadSave(f);
+            afterRefused(f, before); // v0.91 (finding 3): the item never stays in memory to go in with the next one
+            out += name + ": not stored (the save on the card changed).\n";
+            continue;
+        }
+        g_dsRefused = false;
+        bool written;
+        if (f.gba) // v0.94 (FRLG walk items): a GBA Virtual Console save is written the way commitGame writes it
+        {
+            std::vector<u8> next;
+            u32 headerOfs = 0;
+            std::string gwhy;
+            written = walkerbox::gbavc::buildNext(f.gbaFile, f.gbaPick, f.sav->rawData().get(), f.length, next,
+                          headerOfs) &&
+                      walkerbox::gbavc::write(f.titleId, next, headerOfs, f.sav->rawData().get(), f.length, gwhy);
+            dbg_printf("items: GBA write: %s", gwhy.c_str());
+        }
+        else
+            written = writeAndKeep(f, f.sav->rawData().get()); // v0.89 (G1): f.onCard = what was written
+        if (!written)
+        {
+            if (g_dsRefused) // v0.91 (finding 1): a DS card swapped / changed - nothing written
+            {
+                afterRefused(f, before);
+                out += name + ": not stored (the save on the card changed).\n";
+                continue;
+            }
+            afterFailed(f, before); // v0.91 (finding 3)
             out += name + ": writing the game save failed.\n";
             dbg_printf("items: %s: write failed", name.c_str());
             continue;
         }
         dbg_printf("items: %d (%s) -> %s of %s (%s)", items[i].id, items[i].gen2id ? "Gen 2 id" : "national",
             w.c_str(), f.label.c_str(), note.c_str());
-        if (f.sav->generation() == pksm::Generation::FOUR)
-            reloadSave(f); // v0.67: the new trainer-data copy is in the other half; read the save again
+        if (f.sav->generation() == pksm::Generation::FOUR || f.gba)
+            reloadSave(f); // v0.67: the new trainer-data copy is in the other half; read the save again (v0.94: and
+                           // the new Gen 3 copy / GBA container - this also takes over the container for G1's check)
         place = w;
         sent++;
     }

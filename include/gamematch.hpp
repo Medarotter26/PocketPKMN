@@ -40,6 +40,7 @@ namespace walkerbox
     // renumbered as the game would. Refused (false, nothing changed) if anything
     // but box sectors (ids 5-13) was edited, or the save is not as expected.
     bool gameMatchFinish3(pksm::Sav& sav, const uint8_t* before, uint32_t length, std::string& note);
+    bool gameMatchItems3(pksm::Sav& sav, const uint8_t* before, uint32_t length, std::string& note); // v0.94
 
     // Gen 6 (X/Y, Omega Ruby/Alpha Sapphire). One save file, made of blocks, each
     // with a CRC-16 in the block table at the end. When the game takes a Pokemon
@@ -70,6 +71,8 @@ namespace walkerbox
     // v0.53: items added to the save (Gen 2: the PC item list; X/Y: the bag) - only what the game itself changes when
     // it stores an item: that one item list, plus Gen 2's main checksum / X/Y's block checksum. Everything else is
     // put back. Refused (false, sav as before) if the edit touched more than one item list or anything else changed.
+    // v0.94: Gen 3 (FireRed / LeafGreen): the PC item list in the large block, saved as the game does - a new copy in
+    // the other slot (as gameMatchFinish3); read the save again afterwards.
     bool gameMatchItems(pksm::Sav& sav, const uint8_t* before, uint32_t length, std::string& note);
 
     // v0.53 (user: "items sent over should go to pc, not item bag. Unless its a generation without an item pc"):
@@ -85,4 +88,10 @@ namespace walkerbox
     // The current Gen 3 slot as the game picks it (0 = A, 1 = B, -1 = none), with
     // its counter and the physical position of sector 0. Used by the PC test too.
     int gen3CurrentSlot(const uint8_t* save, uint32_t& counter, int& rotation);
+    // v0.94: a FireRed / LeafGreen event flag (0 / 1) from the current copy of a 128 KiB save; -1 = no valid copy.
+    // 0x82C = "game clear" (Hall of Fame entered), 0x820-0x827 = the badges.
+    int gen3FlagFRLG(const uint8_t* save, uint32_t length, int flag);
+    // v0.97: any Gen 3 game; flagsAt = its event flags in the large block (RS 0x1220, Emerald 0x1270, FRLG 0xEE0).
+    // Ruby / Sapphire: game clear 0x804, badges 0x807-0x80E; Emerald 0x864 / 0x867-0x86E (pokeruby / pokeemerald).
+    int gen3Flag(const uint8_t* save, uint32_t length, uint32_t flagsAt, int flag);
 }

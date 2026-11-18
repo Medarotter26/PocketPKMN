@@ -66,7 +66,8 @@ static void draw(const ui_send_info *in, ui_image *big, int frame, int animate, 
 	}
 	ui_text(cx[2], 186, "EV training", 9, UI_SUB, 0, 'l', 1);
 	ui_text(cx[2], 202, ev >= 0 ? k_ev_long[ev] : in->ev_allowed ? "Off" : "None", 12, UI_TEXT, 1, 'l', 1);
-	ui_text(cx[2], 218, ev >= 0 ? "+1 EV / 20 steps" : in->ev_allowed ? "" : "No EVs in Gen 1/2", 9, UI_SUB, 0, 'l', 1);
+	// v0.95 (owner: no "1 per 20 steps" formula on screen): a plain line
+	ui_text(cx[2], 218, ev >= 0 ? "Trains while walking" : in->ev_allowed ? "" : "No EVs in Gen 1/2", 9, UI_SUB, 0, 'l', 1);
 	ui_rect(cx[1] - 12, 182, 1, 40, C2D_Color32(176, 208, 156, 255));
 	ui_rect(cx[2] - 12, 182, 1, 40, C2D_Color32(176, 208, 156, 255));
 	(void)sel;

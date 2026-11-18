@@ -33,7 +33,107 @@ static SAV7 Blank7(string version) // the blank Sun / Moon / Ultra test save (al
     return sav;
 }
 
+// v0.94 (FRLG courses; owner has no FireRed / LeafGreen save: "could you make one and test it all on your end?"):
+// a blank FireRed / LeafGreen save with a test trainer, N badges, the game-clear (Hall of Fame) flag 0x82C if hof,
+// and in box 1 one legal wild Pokemon of each species given (PKHeX's own encounter, the player as OT).
+// v0.97: also Ruby / Sapphire / Emerald (RSE courses). Flags (pokeruby / pokeemerald / pokefirered): badges at
+// SYSTEM_FLAGS + 7 (RS 0x807, E 0x867) / FLAG_BADGE01 0x820 (FRLG); game clear SYSTEM_FLAGS + 4 (RS 0x804, E 0x864) /
+// 0x82C (FRLG).
+static (int badge0, int clear) Gen3Flags(GameVersion v) =>
+    v is GameVersion.FR or GameVersion.LG ? (0x820, 0x82C) : v == GameVersion.E ? (0x867, 0x864) : (0x807, 0x804);
+
+static SAV3 Blank3(string version, int badges, bool hof, IEnumerable<ushort> species)
+{
+    var ver = version switch { "LG" => GameVersion.LG, "R" => GameVersion.R, "S" => GameVersion.S, "E" => GameVersion.E,
+                               _ => GameVersion.FR };
+    var sav = (SAV3)BlankSaveFile.Get(ver, "TESTER", LanguageID.English);
+    sav.Version = ver;
+    sav.OT = "TESTER";
+    sav.TID16 = 24680;
+    sav.SID16 = 13579;
+    sav.Gender = 1;
+    sav.Language = (int)LanguageID.English;
+    var (badge0, clear) = Gen3Flags(ver);
+    for (int i = 0; i < 8; i++)
+        sav.SetEventFlag(badge0 + i, i < badges);
+    sav.SetEventFlag(clear, hof);
+    if (ver is GameVersion.FR or GameVersion.LG)
+        BitConverter.TryWriteBytes(sav.Small[0xAC..], 1u); // FRLG game code (every real FRLG save; PKHeX and PKSM-Core read it)
+    else if (ver == GameVersion.E)
+    {
+        // a real Emerald save has a nonzero security key at 0xAC (PKHeX and PKSM-Core tell Emerald from Ruby / Sapphire
+        // by it) and Battle Frontier data at 0xEE0 (PKSM-Core). The key XORs the bag counts and money - the tests use
+        // the PC item storage, which has no key.
+        BitConverter.TryWriteBytes(sav.Small[0xAC..], 0x5A5A1234u);
+        sav.Small[0xEE1] = 0xFF;
+    }
+    // Ruby / Sapphire: 0 at 0xAC (no Battle Tower record data), as in a real save
+    int slot = 0;
+    foreach (var sp in species)
+    {
+        var blank = new PK3 { Species = sp, CurrentLevel = 50 };
+        var enc = EncounterMovesetGenerator.GenerateEncounters(blank, ReadOnlyMemory<ushort>.Empty, sav.Version)
+                  .Where(e => e.Context == EntityContext.Gen3 && e is not EncounterTrade3)
+                  .FirstOrDefault(e => !e.IsEgg);
+        if (enc is not IEncounterConvertible conv) { Console.WriteLine("no encounter for " + sp); continue; }
+        if (conv.ConvertToPKM(sav) is not PK3 pk) { Console.WriteLine("not a PK3 for " + sp); continue; }
+        sav.SetBoxSlotAtIndex(pk, slot++);
+    }
+    return sav;
+}
+
+// A Gen 3 flash image (128 KiB) of a save's three parts, the way the game writes it: slot 1 = 14 sectors of 4 KiB
+// (id 0 = trainer block, 1-4 = the large block, 5-13 = PC storage), each with its data (up to 0xF80 bytes), then
+// the sector id (u16 at 0xFF4), the checksum (u16 at 0xFF6: the u32 sum of the data, both halves added), the
+// signature 0x08012025 (0xFF8) and the save counter (0xFFC). Slot 2 and the rest stay erased flash (0xFF).
+static byte[] Flash3(SAV3 sav)
+{
+    var img = new byte[0x20000];
+    Array.Fill(img, (byte)0xFF);
+    const int used = 0xF80;
+    var parts = new List<byte[]> { sav.Small.ToArray() };
+    var large = sav.Large.ToArray();
+    for (int o = 0; o < large.Length; o += used)
+        parts.Add(large[o..Math.Min(large.Length, o + used)]);
+    var storage = sav.Storage.ToArray();
+    for (int o = 0; o < storage.Length; o += used)
+        parts.Add(storage[o..Math.Min(storage.Length, o + used)]);
+    if (parts.Count != 14)
+        throw new InvalidOperationException("expected 14 sectors, got " + parts.Count);
+    for (int id = 0; id < 14; id++)
+    {
+        var sector = img.AsSpan(id * 0x1000, 0x1000);
+        sector.Clear();
+        parts[id].CopyTo(sector);
+        uint sum = 0;
+        for (int i = 0; i + 4 <= parts[id].Length; i += 4)
+            sum += BitConverter.ToUInt32(parts[id], i);
+        ushort chk = (ushort)((sum >> 16) + (sum & 0xFFFF));
+        BitConverter.TryWriteBytes(sector[0xFF4..], (ushort)id);
+        BitConverter.TryWriteBytes(sector[0xFF6..], chk);
+        BitConverter.TryWriteBytes(sector[0xFF8..], 0x08012025u);
+        BitConverter.TryWriteBytes(sector[0xFFC..], 2u); // slot A holds even counters (the game writes slot counter % 2)
+    }
+    return img;
+}
+
 int bad = 0;
+if (args.Length >= 3 && args[0] == "blank3") // pkhex-check blank3 <out> FR|LG [badges] [hof 0/1] [species...]
+{
+    var sav = Blank3(args[2], args.Length > 3 ? int.Parse(args[3]) : 0, args.Length > 4 && args[4] == "1",
+                     args.Skip(5).Select(ushort.Parse));
+    var outData = Flash3(sav); // PKHeX cannot Write() its own blank Gen 3 save: the sectors are laid out here
+    File.WriteAllBytes(args[1], outData);
+    Console.WriteLine($"blocks: small 0x{sav.Small.Length:X} large 0x{sav.Large.Length:X} storage 0x{sav.Storage.Length:X}");
+    var clearFlag = Gen3Flags(sav.Version).clear;
+    var back = SaveUtil.GetSaveFile(outData) as SAV3;
+    if (back is not null && !back.ChecksumsValid) Console.WriteLine("checksums: " + back.ChecksumInfo);
+    Console.WriteLine(back is null ? "READ BACK FAILED" : $"read back: {back.GetType().Name} {back.Version} {back.OT} badges {back.Badges} hof {back.GetEventFlag(clearFlag)} sums {back.ChecksumsValid} box {back.BoxData.Count(p => p.Species != 0)}");
+    Console.WriteLine($"wrote {args[1]}: {sav.Version} {sav.OT} badges {sav.Badges} hof {sav.GetEventFlag(clearFlag)}");
+    foreach (var pk in sav.BoxData.Where(p => p.Species != 0))
+        bad += Check(pk, "box", false);
+    return bad > 0 ? 1 : 0;
+}
 if (args.Length >= 2 && args[0] == "memecheck") // Gen 7: is the save's signature valid, and what does it hold?
 {
     foreach (var file in args.Skip(1))
@@ -101,6 +201,26 @@ if (args.Length >= 3 && args[0] == "blank7") // a blank Sun / Moon / Ultra save 
     File.WriteAllBytes(args[1], sav.Write().ToArray());
     Console.WriteLine($"wrote {args[1]}: {sav.Version} {sav.OT}");
     return 0;
+}
+if (args.Length >= 2 && args[0] == "hof6") // v0.93: where a Gen 6 save keeps its Hall of Fame (ORAS courses), badges
+{
+    foreach (var f in args.Skip(1))
+    {
+        if (SaveUtil.GetSaveFile(f) is not SAV6 sav) { Console.WriteLine("not a Gen 6 save: " + f); bad++; continue; }
+        var blocks = sav.GetType().GetProperty("Blocks")!.GetValue(sav)!;
+        var hof = (HallOfFame6)blocks.GetType().GetProperty("HallOfFame")!.GetValue(blocks)!;
+        ReadOnlySpan<byte> all = sav.Data;
+        var e0 = hof.GetEntry(0);
+        long off = System.Runtime.CompilerServices.Unsafe.ByteOffset(
+            ref System.Runtime.InteropServices.MemoryMarshal.GetReference(all),
+            ref System.Runtime.InteropServices.MemoryMarshal.GetReference(e0));
+        int idx = HallOfFame6.PokeSize * HallOfFame6.PokeCount; // entry 0's u32 index (HallFame6Index) follows its Pokemon
+        var hd = new HallFame6Index(hof.GetEntry(0)[idx..]);
+        Console.WriteLine($"{Path.GetFileName(f)} {sav.Version}: HoF entry 0 at 0x{off:X}, index at 0x{off + idx:X} " +
+                          $"(has-data bit = byte 0x{off + idx + 3:X} bit 7), entry size 0x{HallOfFame6.EntrySize:X}, " +
+                          $"HasData {hd.HasData}, badges {sav.Badges}");
+    }
+    return bad > 0 ? 1 : 0;
 }
 if (args.Length >= 5 && args[0] == "templates")
     return Templates.Run(args[1], args[2], args[3], args[4..]);
@@ -259,7 +379,7 @@ if (args.Length >= 4 && args[0] == "pkctx") // v0.64: like "pk", but judged with
     foreach (var f in args.Skip(3))
     {
         var data = File.ReadAllBytes(f);
-        PKM? pk = gen switch { 2 => PokeList2.ReadFromSingle(data), 4 => new PK4(data), 6 => new PK6(data), 7 => new PK7(data), _ => null };
+        PKM? pk = gen switch { 2 => PokeList2.ReadFromSingle(data), 3 => new PK3(data), 4 => new PK4(data), 6 => new PK6(data), 7 => new PK7(data), _ => null };
         if (pk is null) { Console.WriteLine("cannot read " + f); bad++; continue; }
         bad += Check(pk, Path.GetFileName(f), false);
     }
@@ -273,6 +393,16 @@ if (args.Length >= 2 && args[0] == "api") // list public members of PKHeX.Core t
         foreach (var m in t.GetMembers(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static |
                                        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.DeclaredOnly))
             Console.WriteLine("   " + m);
+    }
+    return 0;
+}
+if (args.Length >= 2 && args[0] == "pidiv4") // v0.97: which RNG pattern PKHeX sees in Gen 4 Pokemon (an egg needs None)
+{
+    foreach (var f in args.Skip(1))
+    {
+        var pk = new PK4(File.ReadAllBytes(f));
+        var piv = MethodFinder.Analyze(pk);
+        Console.WriteLine($"{Path.GetFileName(f)}: PID {pk.PID:X8} IVs {pk.IV_HP}/{pk.IV_ATK}/{pk.IV_DEF}/{pk.IV_SPA}/{pk.IV_SPD}/{pk.IV_SPE} TID {pk.TID16} SID {pk.SID16} type {piv.Type}");
     }
     return 0;
 }
@@ -298,6 +428,7 @@ else if (args.Length >= 3 && args[0] == "pk")
         PKM? pk = gen switch
         {
             2 => PokeList2.ReadFromSingle(data), // PKSM's Gen 2 layout = a one-Pokemon list (count, species, 0xFF, ...)
+            3 => new PK3(data), // v0.94: Gen 3 (FRLG catches)
             4 => new PK4(data),
             6 => new PK6(data),
             7 => new PK7(data),

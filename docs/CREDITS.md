@@ -35,12 +35,13 @@ who receives the app.
   Pikachu25) are no longer shown.
 - **Gen 5-7 (#494-807), converted to the walker's 4-shade screen:**
   - Black/White sprites (Game Freak / Nintendo), via the Bulbagarden Archives.
-  - **Smogon Sprite Project** (Gen 6 / Gen 7 BW-style sprites, and the 18 Alolan forms with their Sun/Moon menu
-    icons from the Bulbagarden Archives) - spriters: AMVictory, Arkeis, aXl, Branflakes325,
-    Bynine, Corson, Espeon Scientist, fishbowlsoul90, Galifia, GeoisEvil, G.E.Z., HealnDeal, Layell, Legitimate
-    Username, leParagon, Mega-Pokebattlerz, MyMarshlands, N-Kin, Noscium, paintseagull, princessofmusic,
-    Quanyails, RedRooster, Siiilver, Sleet, TheAetherPlayer, The Cynical Poet, Wobblebuns, Wyverii, Zermonious,
-    Zerudez. Per-sprite credits: [docs/credits_smogon.csv](credits_smogon.csv).
+  - **Smogon Sprite Project** (Gen 6 / Gen 7 BW-style sprites, the 18 Alolan forms, and (v0.90) the Gen 6/7 forms
+    and the female Pyroar, with their menu icons from the Bulbagarden Archives) - spriters: AMVictory, Arkeis, aXl,
+    Basic Vanillite, Branflakes325, Bynine, Corson, Espeon Scientist, fishbowlsoul90, Galifia, GeoisEvil, G.E.Z.,
+    HealnDeal, Larryturbo, Layell, Legitimate Username, leParagon, Mega-Pokebattlerz, MyMarshlands, N-Kin, Noscium,
+    paintseagull, princessofmusic, Quanyails, RedRooster, Siiilver, Sleet, TheAetherPlayer, The Cynical Poet,
+    TrainerSplash, Wobblebuns, Wyverii, Zermonious, Zerudez (the Small Pumpkaboo / Gourgeist sprites have no
+    spriter listed on the sheet). Per-sprite credits: [docs/credits_smogon.csv](credits_smogon.csv).
 - **Walker menu pictures and sounds (built in for "Set up a walker"):** Pokémon HeartGold / SoulSilver (Game Freak /
   Nintendo), taken from the user's own Pokéwalker.
 - **Background music "Pocket Stroll"** (`romfs/sound/music.bin`, v0.73, rebuilt in v0.79): composed for PocketPKMN

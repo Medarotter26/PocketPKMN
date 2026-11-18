@@ -144,6 +144,56 @@ namespace walkerbox
         constexpr u16 SOOTHE_BELL = 218; // national item number
     }
 
+    namespace
+    {
+        // v0.95: the least EXP for exactly n EVs in one stat from battles, as PKHeX counts it (EffortExpLegality,
+        // master 2026-11, read verbatim; Pokerus options left out = a little stricter). Battle options (EV, EXP):
+        // Gen 4 any stat (1,1) (5,1) - wild Lv 2 Pokemon + a Power item; Gen 3 HP/Atk/Spe (1,1) (2,1), Def (1,4)
+        // (2,3) (4,3), SpA (1,3) (2,3), SpD (1,2) (2,2) - with the Macho Brace. stat = the app's order (EV_HP ..
+        // EV_SPE: HP Atk Def SpA SpD Spe; PKHeX's is HP Atk Def Spe SpA SpD).
+        u32 leastBattleExp(int gen, int stat, int n)
+        {
+            static const u8 g4[][2] = {{1, 1}, {5, 1}};
+            static const u8 fast[][2] = {{1, 1}, {2, 1}};
+            static const u8 def[][2] = {{1, 4}, {2, 3}, {4, 3}};
+            static const u8 spa[][2] = {{1, 3}, {2, 3}};
+            static const u8 spd[][2] = {{1, 2}, {2, 2}};
+            const u8(*opt)[2] = gen == 4 ? g4 : stat == EV_DEF ? def : stat == EV_SPA ? spa : stat == EV_SPD ? spd : fast;
+            int nopt = gen == 4 ? 2 : stat == EV_DEF ? 3 : 2;
+            if (n <= 0)
+                return 0;
+            constexpr u32 INF = 0x7FFFFFFF;
+            u32 best[256];
+            for (int e = 0; e <= n && e < 256; e++)
+                best[e] = e ? INF : 0;
+            for (int e = 1; e <= n && e < 256; e++)
+                for (int o = 0; o < nopt; o++)
+                    if (opt[o][0] <= e && best[e - opt[o][0]] != INF)
+                        best[e] = std::min(best[e], best[e - opt[o][0]] + opt[o][1]);
+            return n < 256 ? best[n] : INF;
+        }
+    }
+
+    bool walkEvsFitExp(const pksm::PKX& pk, int gen)
+    {
+        if (gen != 3 && gen != 4)
+            return true;
+        static const pksm::Stat order[6] = {pksm::Stat::HP, pksm::Stat::ATK, pksm::Stat::DEF, pksm::Stat::SPATK,
+            pksm::Stat::SPDEF, pksm::Stat::SPD};
+        u32 need = 0;
+        for (int s = 0; s < 6; s++)
+        {
+            int ev = pk.ev(order[s]), vitamins = std::min(ev / 10 * 10, 100); // vitamins: 10 at a time, up to 100
+            need += leastBattleExp(gen, s, ev - vitamins);
+        }
+        // EXP since it was met: from the EXP of its met level (a hatched egg: level 1; a Pokemon moved on from an
+        // older game: its met level in this game, which is higher than PKHeX's lowest encounter level = stricter)
+        auto base = pk.clone();
+        base->level((u8)std::max<int>(1, pk.metLevel()));
+        u32 gained = pk.experience() > base->experience() ? pk.experience() - base->experience() : 0;
+        return need <= gained;
+    }
+
     bool applyWalkGains(pksm::PKX& pk, int gen, u32 steps, int evStat, WalkGains& g)
     {
         g          = WalkGains{};
@@ -202,6 +252,17 @@ namespace walkerbox
             add        = std::min(add, room);
             g.evBefore = cur;
             pk.ev(s, (u16)(cur + add));
+            // v0.95 (owner: "let's go ahead and do"): Gen 3/4 give no battle EVs at level 100 (Bulbapedia, Effort
+            // values) and need battle EXP for EVs above the vitamin part (PKHeX) - the walk gives only what fits,
+            // one EV at a time back down to what the stat had; nothing it had before is taken away
+            if ((gen == 3 || gen == 4) && add > 0)
+            {
+                if (g.levelBefore >= 100)
+                    pk.ev(s, cur);
+                while (pk.ev(s) > cur && !walkEvsFitExp(pk, gen))
+                    pk.ev(s, (u16)(pk.ev(s) - 1));
+                g.evLimited = pk.ev(s) < cur + add;
+            }
             g.evAfter = pk.ev(s);
         }
         if (gen <= 2 || pk.isParty())
@@ -244,7 +305,8 @@ namespace walkerbox
         // above is unchanged.
         // v0.56: Gen 7 by its form too (Alolan sprites, romfs/sprites/forms)
         spriteFromPack =
-            wbx_sprite_load_for(species, (gen == 2 || gen == 7) ? pk.alternativeForm() : 0, gen, out.sprite) == 1;
+            wbx_sprite_load_for_g(species, (gen == 2 || gen == 3 || gen >= 5) ? pk.alternativeForm() : 0, gen,
+                                  pk.gender() == pksm::Gender::Female, out.sprite) == 1; // v0.90: Gen 5/6 forms, female
         return true;
     }
 }

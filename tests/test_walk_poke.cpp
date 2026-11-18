@@ -61,6 +61,7 @@ static std::unique_ptr<pksm::Sav> load(const char* path)
 
 static wbx_route g_route;
 static int g_gainChecks = 0;
+static int g_evLimited = 0; // v0.95: Gen 3/4 walks that gave fewer EVs
 
 // W4 gains on a copy of pk: several step counts and EV choices; checks the rules and that the bytes re-read.
 static void testGains(const pksm::PKX& orig, int gen)
@@ -121,6 +122,17 @@ static void testGains(const pksm::PKX& orig, int gen)
                 {
                     CHECK(g.evAfter <= walkEvCap(gen));
                     CHECK(g.evAfter - g.evBefore <= steps / 20);
+                    CHECK(g.evAfter >= g.evBefore); // never takes EVs away
+                    if (gen == 3 || gen == 4) // v0.95: what was given fits the EXP since it was met; none at Lv 100
+                    {
+                        CHECK(g.evAfter == g.evBefore || walkEvsFitExp(*pk, gen));
+                        if (g.levelBefore >= 100)
+                            CHECK(g.evAfter == g.evBefore);
+                        if (g.evLimited)
+                            g_evLimited++;
+                    }
+                    else
+                        CHECK(!g.evLimited);
                 }
             }
             // the changed bytes read back as the same Pokemon with the same values
@@ -144,6 +156,7 @@ static void testSave(const char* path)
     int gen = sav->generation() == pksm::Generation::ONE     ? 1
             : sav->generation() == pksm::Generation::TWO     ? 2
             : sav->generation() == pksm::Generation::THREE   ? 3
+            : sav->generation() == pksm::Generation::FOUR    ? 4 // v0.95: Gen 4 saves added (were taken as Gen 7)
             : sav->generation() == pksm::Generation::SIX     ? 6
             : 7;
     int ok = 0, eggs = 0, shown = 0, placeholders = 0;
@@ -353,7 +366,8 @@ int main(int argc, char** argv)
         }
         testSave(argv[i]);
     }
-    printf("W4 gains: %d walks applied and checked\n", g_gainChecks);
+    printf("W4 gains: %d walks applied and checked (%d Gen 3/4 EV walks limited by EXP / level 100)\n", g_gainChecks,
+           g_evLimited);
     printf("%s (%d failure(s))\n", failures ? "FAILED" : "ALL WALK POKEMON CHECKS PASSED", failures);
     return failures != 0;
 }

@@ -20,6 +20,7 @@ typedef struct ui_result_info {
 	unsigned level_before, level_after, exp_gain, friend_before, friend_after;
 	int has_friendship, ev_stat;
 	unsigned ev_before, ev_after;
+	int ev_limited; // v0.95: Gen 3/4 - 1 = fewer EVs (EXP since it was met), 2 = none (level 100); 0 = as the steps gave
 	char back[160];         // "Back in Pokemon X (box 1, slot 3)." / waiting message
 	int ncaught;
 	unsigned caught_species[3], caught_level[3];

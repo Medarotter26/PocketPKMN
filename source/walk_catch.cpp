@@ -15,6 +15,7 @@
 #include "enums/Stat.hpp"
 #include "personal/personal.hpp"
 #include "pkx/PK2.hpp"
+#include "pkx/PK3.hpp" // v0.94: Gen 3 catches
 #include "pkx/PK4.hpp"
 #include "pkx/PK6.hpp"
 #include "pkx/PK7.hpp"
@@ -115,7 +116,8 @@ namespace walkerbox
             }
             // Gen 7 templates of a Gen 6 origin (the X/Y Ditto) list the Gen 7 player as handler under the template's
             // trainer name "PLAYER": that becomes the player too (read before the OT name changes)
-            bool htIsPlayer = p7 && p7->htName() == "PLAYER";
+            // v0.93: also Gen 6 - an ORAS catch from the other ORAS game or from X / Y (tools/pkhex_check_Templates.cs)
+            bool htIsPlayer = (p7 && p7->htName() == "PLAYER") || (p6 && p6->htName() == "PLAYER");
             // the origin save's trainer (the template was made for "PLAYER" 12345/54321)
             pk->otName(tr.name);
             pk->TID(tr.tid);
@@ -133,6 +135,11 @@ namespace walkerbox
                 p6->country(tr.country);
                 p6->region(tr.subRegion);
                 p6->consoleRegion(tr.consoleRegion);
+                if (htIsPlayer)
+                {
+                    p6->htName(tr.name);
+                    p6->htGender(tr.female ? pksm::Gender::Female : pksm::Gender::Male);
+                }
             }
             else
             {
@@ -295,14 +302,111 @@ namespace walkerbox
                             }
                         }
                     }
-                for (pksm::Stat s : kStats)
-                    pk->iv(s, (u8)(rng.next() % 32));
+                // v0.97: new IVs (same PID: nature, gender, ability slot, shininess kept) while PID + IVs happen to fit
+                // a Gen 3 event pattern - PKHeX would read the egg as that event ("PID+ correlation"; about 1 in
+                // 250,000, seen in tests/run_catches.sh: a DPPt Wooper, PID 525CAACC, as BACD_ES)
+                for (int tries = 0; tries < 64; tries++)
+                {
+                    for (pksm::Stat s : kStats)
+                        pk->iv(s, (u8)(rng.next() % 32));
+                    const u8 iv[6] = { pk->iv(pksm::Stat::HP), pk->iv(pksm::Stat::ATK), pk->iv(pksm::Stat::DEF),
+                        pk->iv(pksm::Stat::SPATK), pk->iv(pksm::Stat::SPDEF), pk->iv(pksm::Stat::SPD) };
+                    if (!pidIvLooksLikeEvent3(pk->PID(), iv, (u16)(pk->TID() ^ pk->SID())))
+                        break;
+                }
                 pk->eggDate(today);
             }
             pk->metDate(today);
             pk->refreshChecksum();
             out = std::move(pk);
             return true;
+        }
+
+        // v0.94 (FRLG courses; plan docs/FRLG_COURSES_PLAN.md): Gen 3 - FireRed / LeafGreen. The template is PKHeX's
+        // legal Pokemon (PK3, 80-byte decrypted box data). Gen 3 PIDs and IVs come from the game's random numbers and
+        // PKHeX checks that, so a new pair is made the way the game makes it - Method 1 (GBA RNG
+        // seed * 0x41C64E6D + 0x6073; PID = second call << 16 | first call, then two calls for the IVs) - for wild,
+        // static and gift templates; a hatched egg keeps PKHeX's own PID and IVs (below). Checked: tests/run_catches.sh.
+        // Never shiny (owner default for Gen 3: a shiny Method 1 PID would need a long search). Nature, gender and
+        // the ability slot follow from the PID (the ability bit = PID & 1, as the game sets it).
+        bool buildGen3(const CatchTemplate& t, const CatchTrainer& tr, Rng& rng, std::unique_ptr<pksm::PKX>& out,
+            std::string& why)
+        {
+            if (t.len != pksm::PK3::BOX_LENGTH)
+            {
+                why = "template is not a Gen 3 Pokemon";
+                return false;
+            }
+            std::vector<u8> buf(t.data, t.data + t.len);
+            auto pk = pksm::PKX::getPKM(pksm::Generation::THREE, buf.data(), buf.size());
+            if (!pk || pk->generation() != pksm::Generation::THREE)
+            {
+                why = "template cannot be read";
+                return false;
+            }
+            // v0.96 (owner's first FireRed catch, a 3-letter OT: PKHeX "Final terminator missing"): the 7-byte OT field is
+            // erased to 0xFF first, as the game has it - writing a shorter name over the template's "PLAYER" left
+            // "ER" after the end mark. 0x14 = PK3 OT name (PKHeX PK3, PKSM-Core PK3::otName).
+            {
+                u8* raw = pk->rawData().data();
+                memset(raw + 0x14, 0xFF, 7);
+            }
+            // v0.97: a Colosseum / XD origin (RSE courses: Espeon, Umbreon, Hitmontop) comes as from the player's own
+            // Colosseum / XD game: those games make the trainer ID (and from it the PID) with their own RNG and the
+            // player is always male (PKHeX: "Trainer ID is not obtainable from any RNG seed", "OT from Colosseum/XD
+            // cannot be female") - so it keeps the template's TID, SID and gender; only the name is the player's
+            const bool cxd = pk->version() == pksm::GameVersion::CXD;
+            pk->otName(tr.name);
+            if (!cxd)
+            {
+                pk->TID(tr.tid);
+                pk->SID(tr.sid);
+                pk->otGender(tr.female ? pksm::Gender::Female : pksm::Gender::Male);
+            }
+            pk->language(tr.language);
+            {
+                std::string own = gameSpeciesName(tr.language, 4, u16(pk->species())); // Gen 3 names = Gen 4 capitals
+                pk->nickname(own.empty() ? upper(i18n::species(pksm::Language::ENG, pk->species())) : own);
+            }
+            pk->nicknamed(false);
+            // a hatched egg keeps PKHeX's own legal PID and IVs (a Method 1 PID makes PKHeX read it as a different
+            // encounter: "PID+ correlation" / "Fateful Encounter flag missing"); v0.97: so do a Colosseum / XD origin
+            // (its own PID method) and Unown (its letter comes from the PID and must fit its Tanoby chamber)
+            if ((t.flags & 2) || cxd || u16(pk->species()) == 201)
+            {
+                pk->refreshChecksum();
+                out = std::move(pk);
+                return true;
+            }
+            const u32 tsv = (u32)(tr.tid ^ tr.sid);
+            for (int tries = 0; tries < 64; tries++)
+            {
+                u32 seed = rng.next();
+                auto call = [&seed]() {
+                    seed = seed * 0x41C64E6Du + 0x6073u;
+                    return (u16)(seed >> 16);
+                };
+                u16 lo = call(), hi = call(), iv1 = call(), iv2 = call();
+                u32 pid = ((u32)hi << 16) | lo;
+                if ((tsv ^ hi ^ lo) < 8) // shiny: take another seed
+                    continue;
+                pk->PID(pid);
+                // the ability bit = PID & 1 only where the species has two abilities (PKHeX: "Ability does not match
+                // ability number" for a one-ability species with the bit set)
+                bool two = pk->abilities(1) != pksm::Ability::None && pk->abilities(1) != pk->abilities(0);
+                static_cast<pksm::PK3*>(pk.get())->abilityBit(two && (pid & 1) != 0);
+                pk->iv(pksm::Stat::HP, (u8)(iv1 & 31));
+                pk->iv(pksm::Stat::ATK, (u8)((iv1 >> 5) & 31));
+                pk->iv(pksm::Stat::DEF, (u8)((iv1 >> 10) & 31));
+                pk->iv(pksm::Stat::SPD, (u8)(iv2 & 31));
+                pk->iv(pksm::Stat::SPATK, (u8)((iv2 >> 5) & 31));
+                pk->iv(pksm::Stat::SPDEF, (u8)((iv2 >> 10) & 31));
+                pk->refreshChecksum();
+                out = std::move(pk);
+                return true;
+            }
+            why = "no PID found";
+            return false;
         }
 
         bool buildGen2(const CatchTemplate& t, const CatchTrainer& tr, const pksm::PKX* shell, bool shiny,
@@ -379,6 +483,57 @@ namespace walkerbox
         }
     }
 
+    // v0.97: PKHeX MethodFinder.GetBACDMatch + CommonEvent3 (read from PKHeX master 2026-11-18): every seed whose
+    // two 15-bit calls give the IVs (brute force over the 16 low bits instead of PKHeX's lattice reversal - same
+    // seeds); the two calls before them are B (low PID half) and A (high), one more before = X.
+    bool pidIvLooksLikeEvent3(u32 pid, const u8 iv[6], u16 idXor)
+    {
+        auto next = [](u32 s) { return s * 0x41C64E6Du + 0x6073u; };
+        auto prev = [](u32 s) { return s * 0xEEB9EB65u + 0x0A3561A1u; };
+        const u32 iv1 = iv[0] | (iv[1] << 5) | (iv[2] << 10); // HP, Atk, Def
+        const u32 iv2 = iv[5] | (iv[3] << 5) | (iv[4] << 10); // Spe, SpA, SpD
+        const u32 x = idXor;
+        const bool shiny = ((x ^ (pid >> 16) ^ (pid & 0xFFFF)) < 8);
+        auto antishiny = [x](u32 a, u32 b) { return (((a ^ (x ^ b)) << 16) | b); };
+        for (u32 low = 0; low < 0x10000; low++)
+        {
+            const u32 seed = (iv1 << 16) | low;
+            if ((next(seed) & 0x7FFF0000u) != (iv2 << 16))
+                continue;
+            const u32 s0 = prev(seed);
+            for (u32 s : { s0, s0 ^ 0x80000000u })
+            {
+                const u32 b16 = s >> 16;
+                const u32 p = prev(s);
+                const u32 a16 = p >> 16;
+                const u32 x16 = prev(p) >> 16;
+                const u32 expect = (a16 << 16) | b16;
+                if (expect == pid)
+                    return true; // BACD
+                if (!shiny)
+                {
+                    if (((expect + 8) & 0xFFFFFFF8u) == pid)
+                        return true; // BACD_A
+                    if ((a16 & ~7u) != 0 && antishiny(a16, b16) == pid)
+                        return true; // BACD_AX
+                    if (x16 == pid >> 16 && (pid & 7) == (b16 & 7) && ((x ^ x16) & 0xFFF8) != (pid & 0xFFF8))
+                        return true; // BACD_ES
+                }
+                else
+                {
+                    const u32 delta = pid - expect;
+                    if ((pid & 7) == 0 && delta != 0 && delta < 8)
+                        return true; // BACD_EA
+                    if ((a16 & ~7u) != 0 && (pid & 0xFFFF) == b16 && (antishiny(a16, b16) >> 19) != (pid >> 19))
+                        return true; // BACD_EAX
+                    if (x16 == pid >> 16 && ((x16 << 16) | (((x ^ x16) & 0xFFF8) | (b16 & 7))) == pid)
+                        return true; // BACD_S
+                }
+            }
+        }
+        return false;
+    }
+
     bool buildCatch(const CatchTemplate& t, const CatchTrainer& tr, const pksm::PKX* shell, bool shiny, bool female,
         u32 seed, int day, int month, int year, std::unique_ptr<pksm::PKX>& out, std::string& why)
     {
@@ -396,6 +551,8 @@ namespace walkerbox
             return buildGen2(t, tr, shell, shiny, female, rng, out, why);
         if (t.gen == 4)
             return buildGen4(t, tr, shiny, female, rng, Date{(u8)day, (u8)month, (u32)year}, out, why);
+        if (t.gen == 3) // v0.94: never shiny, gender from the PID (Gen 3)
+            return buildGen3(t, tr, rng, out, why);
         why = "no catches for this generation yet";
         return false;
     }

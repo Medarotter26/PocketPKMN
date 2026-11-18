@@ -82,7 +82,61 @@ int main(void)
 	CHECK(routes_file_for(0x0004000000055E00ULL, 6, &v) && !strcmp(v, "y"), "Y -> xy/y");
 	CHECK(routes_file_for(0x0004000000172800ULL, 2, &v) && !strcmp(routes_file_for(0x0004000000172800ULL, 2, &v), "gsc"), "Crystal -> gsc");
 	CHECK(!routes_file_for(0x0004000000171100ULL, 1, &v), "Blue -> no routes");
-	CHECK(!routes_file_for(0x000400000011C500ULL, 6, &v), "Alpha Sapphire -> no routes");
+	// v0.93: Omega Ruby / Alpha Sapphire courses (tools/routes_oras.py)
+	CHECK(routes_file_for(0x000400000011C400ULL, 6, &v) && !strcmp(v, "or") &&
+	      !strcmp(routes_file_for(0x000400000011C400ULL, 6, &v), "oras"), "Omega Ruby -> oras/or");
+	CHECK(routes_file_for(0x000400000011C500ULL, 6, &v) && !strcmp(v, "as") &&
+	      !strcmp(routes_file_for(0x000400000011C500ULL, 6, &v), "oras"), "Alpha Sapphire -> oras/as");
+	one("oras", "or", 6);
+	one("oras", "as", 6);
+	{
+		static route_file ro;
+		CHECK(routes_load("oras", &ro) == 18, "oras: 18 courses");
+		int forms = 0;
+		for (int i = 0; i < ro.ncourse; i++)
+			for (int k = 0; k < ro.course[i].npoke; k++)
+				forms += ro.course[i].poke[k].form != 0;
+		CHECK(forms == 1, "oras: %d Pokemon with a form (expected 1: East Sea Shellos)", forms);
+		CHECK(!strcmp(ro.course[2].unlock, "badges=1") && !strcmp(ro.course[11].unlock, "hof") &&
+		      !strcmp(ro.course[17].unlock, "hof watts=30000"), "oras: unlocks");
+	}
+	// v0.94: FireRed / LeafGreen - known only once the games scan noted the title (its own GBA inject title ID)
+	CHECK(!routes_file_for(0x0004000003EA7A00ULL, 3, &v), "Gen 3 title not noted -> no routes");
+	routes_note_gen3(0x0004000003EA7A00ULL, "lg");
+	routes_note_gen3(0x0004000003EA7B00ULL, "fr");
+	CHECK(routes_file_for(0x0004000003EA7A00ULL, 3, &v) && !strcmp(v, "lg"), "noted LeafGreen -> frlg/lg");
+	CHECK(routes_file_for(0x0004000003EA7B00ULL, 3, &v) && !strcmp(v, "fr") &&
+	      !strcmp(routes_file_for(0x0004000003EA7B00ULL, 3, &v), "frlg"), "noted FireRed -> frlg/fr");
+	CHECK(!routes_file_for(0x0004000003EA7A00ULL, 2, &v) || strcmp(routes_file_for(0x0004000003EA7A00ULL, 2, &v), "frlg"),
+	      "a noted Gen 3 title is not FRLG for another generation");
+	// v0.97: Ruby / Sapphire / Emerald -> rse
+	routes_note_gen3(0x0004000003EA7C00ULL, "e");
+	routes_note_gen3(0x0004000003EA7D00ULL, "r");
+	CHECK(routes_file_for(0x0004000003EA7C00ULL, 3, &v) && !strcmp(v, "e") &&
+	      !strcmp(routes_file_for(0x0004000003EA7C00ULL, 3, &v), "rse"), "noted Emerald -> rse/e");
+	CHECK(routes_file_for(0x0004000003EA7D00ULL, 3, &v) && !strcmp(v, "r"), "noted Ruby -> rse/r");
+	one("rse", "r", 3);
+	one("rse", "s", 3);
+	one("rse", "e", 3);
+	{
+		static route_file re;
+		CHECK(routes_load("rse", &re) == 29, "rse: 29 courses (43 in the workbook, 14 left out by the owner)");
+		CHECK(!strcmp(re.course[0].unlock, "start") && !strcmp(re.course[12].unlock, "hof watts=2500") &&
+		      !strcmp(re.course[28].unlock, "hof watts=40000"), "rse: unlocks");
+		CHECK(re.rejected == 0, "rse: %d lines rejected", re.rejected);
+	}
+	routes_note_gen3(0x0004000003EA7A00ULL, NULL); // e.g. it turned out to be Emerald
+	CHECK(!routes_file_for(0x0004000003EA7A00ULL, 3, &v), "forgotten -> no routes");
+	one("frlg", "fr", 3);
+	one("frlg", "lg", 3);
+	{
+		static route_file rg;
+		CHECK(routes_load("frlg", &rg) == 20, "frlg: 20 courses (v0.97: + Wyrm Peak)");
+		CHECK(!strcmp(rg.course[0].unlock, "start") && !strcmp(rg.course[3].unlock, "badges=1") &&
+		      !strcmp(rg.course[14].unlock, "hof") && !strcmp(rg.course[18].unlock, "hof watts=20000"), "frlg: unlocks");
+		CHECK(!strcmp(rg.course[18].name, "Elite Bazaar") && !strcmp(rg.course[6].name, "Underground"),
+		      "frlg: renamed courses (too wide)");
+	}
 	// v0.52: course unlocks
 	CHECK(routes_unlocked("start", 0, 0, 0), "start is always open");
 	CHECK(!routes_unlocked("badges=3", 2, 0, 0) && routes_unlocked("badges=3", 3, 0, 0) &&

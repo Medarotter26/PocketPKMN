@@ -62,6 +62,7 @@ typedef struct storage_walk_result {
 	unsigned friend_before, friend_after;
 	int ev_stat;
 	unsigned ev_before, ev_after;
+	int ev_limited; // v0.95: Gen 3/4 - 1 = fewer EVs (EXP since it was met), 2 = none (level 100); 0 = as the steps gave
 } storage_walk_result;
 int storage_walk_return(int box, int slot, unsigned long fingerprint, unsigned steps, int ev_stat,
                         storage_walk_result *res, unsigned long *new_fp, char *why, int why_size);

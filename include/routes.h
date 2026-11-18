@@ -17,7 +17,7 @@ extern "C" {
 #define ROUTES_DIR "romfs:/routes"
 #endif
 
-#define ROUTES_MAX_COURSES 24
+#define ROUTES_MAX_COURSES 48 // v0.97: Ruby / Sapphire / Emerald have 43 courses (was 24)
 
 typedef struct route_poke_def {
 	char group;      // 'A' filler .. 'C' prize
@@ -53,9 +53,15 @@ typedef struct route_file {
 } route_file;
 
 // Which route file a game uses: "xy" for Pokemon X / Y (version "x" / "y"), "gsc" for Gold / Silver / Crystal
-// (any Gen 2 save), "sm" for Sun / Moon / Ultra Sun / Ultra Moon ("sn" / "mn" / "us" / "um"). NULL = no routes
+// (any Gen 2 save), "sm" for Sun / Moon / Ultra Sun / Ultra Moon ("sn" / "mn" / "us" / "um"), "oras" for Omega Ruby /
+// Alpha Sapphire ("or" / "as", v0.93), "dppt" for Diamond / Pearl / Platinum, "frlg" for FireRed / LeafGreen ("fr" /
+// "lg", v0.94, see routes_note_gen3). NULL = no routes
 // yet ("Not yet compatible").
 const char *routes_file_for(unsigned long long title_id, int gen, const char **version);
+// v0.94: the games scan notes which Gen 3 titles are FireRed ("fr") / LeafGreen ("lg") - their saves look alike and
+// (v0.97) Ruby "r" / Sapphire "s" / Emerald "e" -> "rse";
+// a GBA inject's title ID is its own; NULL = not FireRed / LeafGreen. routes_file_for(tid, 3, ...) then gives "frlg".
+void routes_note_gen3(unsigned long long title_id, const char *version);
 
 // Loads ROUTES_DIR/<name>.txt. Returns the course count, or -1.
 int routes_load(const char *name, route_file *out);

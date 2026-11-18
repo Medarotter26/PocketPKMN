@@ -82,6 +82,9 @@ void ui_result_run(const ui_result_info *r)
 				char k[32];
 				snprintf(k, sizeof(k), "%s EVs", k_ev_long[r->ev_stat]);
 				fact(290, 128, k, t);
+				// v0.95: Gen 3/4 give EVs only as far as the Pokemon's EXP explains them, and none at level 100
+				if (r->ev_limited)
+					ui_text(290, 160, r->ev_limited == 2 ? "None at Lv 100" : "Limited by EXP", 9, UI_SUB, 0, 'l', 0);
 				ev_shown = 1;
 			}
 		}

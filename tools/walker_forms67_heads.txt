@@ -1,0 +1,4 @@
+# Face points for Gen 6/7 forms whose body differs from the base Pokemon ("<key> x y" in the mirrored, trimmed
+# picture, read off art_src/forms67/heads_grid.png). Not listed: the base Pokemon's walker_heads.txt point.
+800_f1 72 33   # Necrozma Dusk Mane
+800_f2 39 25   # Necrozma Dawn Wings

@@ -47,6 +47,7 @@ public static class Templates
     }
 
     static int Gen(GameVersion v) => v is GameVersion.GD or GameVersion.SI or GameVersion.C ? 2 :
+        v is GameVersion.FR or GameVersion.LG or GameVersion.R or GameVersion.S or GameVersion.E or GameVersion.CXD ? 3 : // v0.94 (+ CXD v0.97)
         v is GameVersion.D or GameVersion.P or GameVersion.Pt ? 4 :
         v is GameVersion.SN or GameVersion.MN or GameVersion.US or GameVersion.UM ? 7 : 6;
 
@@ -54,6 +55,9 @@ public static class Templates
     {
         "GD" => GameVersion.GD, "SI" => GameVersion.SI, "C" => GameVersion.C, "X" => GameVersion.X, "Y" => GameVersion.Y,
         "SN" => GameVersion.SN, "MN" => GameVersion.MN, "US" => GameVersion.US, "UM" => GameVersion.UM,
+        "OR" => GameVersion.OR, "AS" => GameVersion.AS, // v0.93: ORAS courses
+        "FR" => GameVersion.FR, "LG" => GameVersion.LG, "R" => GameVersion.R, "S" => GameVersion.S, "E" => GameVersion.E, // v0.94
+        "CXD" => GameVersion.CXD, // v0.97: Colosseum / XD origins (RSE courses: Espeon, Umbreon, Hitmontop)
         "D" => GameVersion.D, "P" => GameVersion.P, "Pt" => GameVersion.Pt,
         _ => throw new ArgumentException(s),
     };
@@ -73,7 +77,8 @@ public static class Templates
         };
         if (list.Contains(pair))
             return pair;
-        bool moonSide = v is GameVersion.MN or GameVersion.UM; // Gen 6 origins: Sun side -> X, Moon side -> Y
+        // Gen 6 origins: Sun side -> X, Moon side -> Y; v0.93: Omega Ruby -> X, Alpha Sapphire -> Y
+        bool moonSide = v is GameVersion.MN or GameVersion.UM or GameVersion.AS;
         if (list.Contains(GameVersion.X) && list.Contains(GameVersion.Y))
             return moonSide ? GameVersion.Y : GameVersion.X;
         return list[0];
@@ -224,6 +229,10 @@ public static class Templates
         // shininess), a wild one's are tied to the game's RNG method and must stay as PKHeX made them
         if (gen == 4)
             return e.IsEgg ? 0 : e.GetType().Name.StartsWith("EncounterSlot") ? 1 : 3;
+        // v0.94 Gen 3: wild slots first, then statics / gifts (both Method 1 in FireRed / LeafGreen - the app makes a
+        // new PID and IVs the same way for every catch), trades, eggs last (Gen 3 egg PIDs follow other rules)
+        if (gen == 3)
+            return e.GetType().Name.StartsWith("EncounterSlot") ? 0 : e.IsEgg ? 4 : e.GetType().Name.Contains("Trade") ? 3 : 1;
         // hidden-ability-capable first, then wild slots, then eggs, then statics/trades/gifts
         int r = e is EncounterSlot6XY s && s.IsHorde ? 0 : 0;
         if (e.IsEgg) return 2;
@@ -256,7 +265,8 @@ public static class Templates
                 var v = Origin(p, player); // = player except for Gen 7 lines with origin=
                 int target = Gen(player) == 7 ? 7 : 0;
                 total++;
-                PKM blank = Gen(player) == 2 ? new PK2() : Gen(player) == 4 ? new PK4() : Gen(player) == 7 ? new PK7() : new PK6();
+                PKM blank = Gen(player) == 2 ? new PK2() : Gen(player) == 3 ? new PK3() : Gen(player) == 4 ? new PK4() :
+                            Gen(player) == 7 ? new PK7() : new PK6();
                 blank.Species = p.Species;
                 blank.Form = p.Form;
                 blank.CurrentLevel = p.Level;
@@ -265,8 +275,11 @@ public static class Templates
                 IEnumerable<IEncounterable> encs;
                 try { encs = EncounterMovesetGenerator.GenerateEncounters(blank, p.Moves, v).ToList(); }
                 catch (Exception e) { cells.Add("ERROR " + e.Message); missing++; continue; }
+                // v0.97: Gen 3 never from an event gift (PKHeX "Gift Encounter", fateful; owner rule: no special /
+                // event Pokemon) - Pikachu / Raichu in the RSE Generator Yard had taken one
                 var usable = encs.Where(e => e.IsEgg || e.LevelMin <= p.Level)
-                                 .OrderBy(e => Rank(e, p.Level, Gen(player) == 4 ? 4 : 0)).ToList();
+                                 .Where(e => Gen(player) != 3 || (e is not MysteryGift && !e.GetType().Name.StartsWith("EncounterGift")))
+                                 .OrderBy(e => Rank(e, p.Level, Gen(player) is 3 or 4 ? Gen(player) : 0)).ToList();
                 PKM? best = null;
                 IEncounterable? from = null;
                 bool hidden = false, traded = false;
@@ -301,7 +314,12 @@ public static class Templates
                 // current handler. Without this PKHeX, with the save open, says "Invalid Current handler value" (152 of
                 // 432 Moon catches). Same marking as the X / Y Ditto above; the app puts the player's name and gender
                 // in place of "PLAYER" (source/walk_catch.cpp).
-                if (target == 7 && v != player && best.Format == 7 && Gen(v) == 7)
+                // v0.93: the same for Omega Ruby / Alpha Sapphire - a version exclusive of the other game (Seedot in
+                // Alpha Sapphire) or the X/Y Friend Safari Machoke (PKHeX with the owner's Alpha Sapphire save loaded:
+                // "Invalid Current handler value" for all 11 otherwise)
+                if ((target == 7 && v != player && best.Format == 7 && Gen(v) == 7) ||
+                    (Gen(player) == 6 && v != player && best.Format == 6 &&
+                     player is GameVersion.OR or GameVersion.AS))
                 {
                     var me = Trainer(player);
                     best.HandlingTrainerName = me.OT;
@@ -317,6 +335,21 @@ public static class Templates
                         continue;
                     }
                 }
+                // v0.97: a Colosseum / XD origin comes as a CK3 / XK3; in a GBA game it is a PK3 (as after the trade) -
+                // converted and checked again
+                if (best is CK3 or XK3)
+                {
+                    var pk3 = EntityConverter.ConvertToType(best, typeof(PK3), out var cres) as PK3;
+                    var la3 = pk3 is null ? null : new LegalityAnalysis(pk3);
+                    if (pk3 is null || la3 is null || !la3.Valid)
+                    {
+                        missing++;
+                        cells.Add("**NOT LEGAL AS A GBA POKEMON** (" + (pk3 is null ? cres.ToString() : string.Join(" / ",
+                            la3!.Report().Split('\n').Select(s => s.Trim()).Where(s => s.StartsWith("Invalid")).Take(3))) + ")");
+                        continue;
+                    }
+                    best = pk3;
+                }
                 int fixedIVs = from is IFixedIVSet { IVs.IsSpecified: true } ? 6 :
                                from is IFlawlessIVCount f ? f.FlawlessIVCount : 0;
                 // Gen 7: a wild Pokemon with its hidden ability comes from an SOS chain, which PKHeX requires to have
@@ -325,6 +358,7 @@ public static class Templates
                     fixedIVs = Math.Max(fixedIVs, 2);
                 byte flags = (byte)((hidden ? 1 : 0) | (from.IsEgg ? 2 : 0) | (traded ? 4 : 0));
                 byte[] data = best is PK2 pk2 ? pk2.Data.ToArray()[..32]
+                            : best is PK3 ? best.Data.ToArray()[..80] // v0.94: PK3 80-byte box data
                             : best is PK4 ? best.Data.ToArray()[..136] : best.Data.ToArray()[..232]; // PK4: 136-byte box data
                 bw.Write((byte)vi); bw.Write((byte)p.Course); bw.Write((byte)p.Index); bw.Write((byte)best.Format);
                 bw.Write(flags); bw.Write((byte)fixedIVs); bw.Write((ushort)data.Length); bw.Write(data);

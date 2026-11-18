@@ -39,7 +39,7 @@
 #include "wbx_trainer.h"
 #include "sound.h"
 
-#define APP_VERSION "0.85"
+#define APP_VERSION "0.97"
 #define LOG_PATH    APP_DIR "/link_log.txt"
 #define LEDGER_PATH APP_DIR "/ledger.txt"
 
@@ -1361,7 +1361,7 @@ __attribute__((unused)) static int pick_bank_pokemon(int count)
 			if (!storage_walk_ev_cap(walk_items[sel].box, walk_items[sel].slot))
 				walk_ev = -1;
 			printf("X: EV training: %s%s\n", walk_ev < 0 ? "Off" : k_ev_names[walk_ev],
-			       storage_walk_ev_cap(walk_items[sel].box, walk_items[sel].slot) ? " (+1 per 20 steps)"
+			       storage_walk_ev_cap(walk_items[sel].box, walk_items[sel].slot) ? ""
 			                                                                      : " (none in Gen 1/2)");
 			consoleSelect(&top);
 			consoleClear();
@@ -1765,7 +1765,7 @@ static void do_send_walk(void)
 			printf("\nWALK STARTED: \"%s\" is walking.\n%u watt(s) kept by PocketPKMN.\n", nick, watts);
 			result_sound(0);
 			if (walk_ev >= 0)
-				printf("Training %s: +1 EV every 20 steps.\n", k_ev_names[walk_ev]);
+				printf("EV training: %s.\n", k_ev_names[walk_ev]); // v0.95: no formula shown (owner)
 		}
 		if (lr != 0)
 			printf("Recording the walk on the SD card\nfailed. End walk may have to take\nit back without gains.\n");
@@ -2086,6 +2086,7 @@ static void pending_run(ui_result_info *res)
 				res->ev_stat = g.ev_stat;
 				res->ev_before = g.ev_before;
 				res->ev_after = g.ev_after;
+				res->ev_limited = g.ev_limited; // v0.95
 				if (g.level_after > g.level_before)
 					printf("Lv %u -> %u!\n", g.level_before, g.level_after);
 				printf("EXP +%u", g.exp_after - g.exp_before);
@@ -2093,7 +2094,8 @@ static void pending_run(ui_result_info *res)
 					printf(", friendship %u -> %u", g.friend_before, g.friend_after);
 				printf("\n");
 				if (g.ev_stat >= 0)
-					printf("%s EVs %u -> %u\n", k_ev_names[g.ev_stat], g.ev_before, g.ev_after);
+					printf("%s EVs %u -> %u%s\n", k_ev_names[g.ev_stat], g.ev_before, g.ev_after,
+					       g.ev_limited == 2 ? " (none at Lv 100)" : g.ev_limited ? " (limited by EXP)" : ""); // v0.95
 				ledger("  back in bank=%d/%d pk=%08lx steps=%u lv=%u->%u exp=%u->%u friendship=%u->%u ev=%d %u->%u "
 				       "pk-now=%08lx", box + 1, slot + 1, (unsigned long)pend.bank_fp, g.steps, g.level_before,
 				       g.level_after, g.exp_before, g.exp_after, g.friend_before, g.friend_after, g.ev_stat,
@@ -3357,7 +3359,7 @@ static void home_build(void)
 			snprintf(home.route, sizeof(home.route), "%s", last_course);
 			snprintf(home.watts, sizeof(home.watts), "%u", watts);
 			if (ev >= 0 && ev < 6)
-				snprintf(home.training, sizeof(home.training), "%s (+1 per 20 steps)", ev_long[ev]);
+				snprintf(home.training, sizeof(home.training), "%s", ev_long[ev]); // v0.95: no formula shown (owner)
 			else
 				snprintf(home.training, sizeof(home.training), "Off");
 		} else {

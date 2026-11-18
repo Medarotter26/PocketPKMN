@@ -8,11 +8,46 @@
 #include "pw_image.h"
 #include "wbx_sprites.h"
 
+// v0.94 (FRLG courses): a GBA Virtual Console inject's title ID says nothing about the game, and FireRed and LeafGreen
+// saves look the same; the games scan (storage.cpp) notes each FireRed / LeafGreen title here ("fr" / "lg").
+#define ROUTES_MAX_GEN3 32
+static struct {
+	unsigned long long tid;
+	char v[3];
+} g_gen3[ROUTES_MAX_GEN3];
+static int g_ngen3;
+
+void routes_note_gen3(unsigned long long title_id, const char *version)
+{
+	int i;
+	for (i = 0; i < g_ngen3 && g_gen3[i].tid != title_id; i++)
+		;
+	if (!version) { // not FireRed / LeafGreen (any more): forget it
+		if (i < g_ngen3)
+			g_gen3[i] = g_gen3[--g_ngen3];
+		return;
+	}
+	if (i == g_ngen3) {
+		if (g_ngen3 == ROUTES_MAX_GEN3)
+			return;
+		g_ngen3++;
+	}
+	g_gen3[i].tid = title_id;
+	snprintf(g_gen3[i].v, sizeof g_gen3[i].v, "%s", version);
+}
+
 const char *routes_file_for(unsigned long long title_id, int gen, const char **version)
 {
 	const char *v = "all";
 	const char *file = NULL;
-	if (gen == 2) {
+	if (gen == 3) { // v0.94: FireRed / LeafGreen; v0.97: Ruby / Sapphire / Emerald (noted by the games scan)
+		for (int i = 0; i < g_ngen3; i++)
+			if (g_gen3[i].tid == title_id) {
+				int frlg = !strcmp(g_gen3[i].v, "fr") || !strcmp(g_gen3[i].v, "lg");
+				file = frlg ? "frlg" : "rse";
+				v = g_gen3[i].v;
+			}
+	} else if (gen == 2) {
 		file = "gsc";
 		v = "all";
 	} else if (gen == 6 && title_id == 0x0004000000055D00ULL) {
@@ -21,6 +56,12 @@ const char *routes_file_for(unsigned long long title_id, int gen, const char **v
 	} else if (gen == 6 && title_id == 0x0004000000055E00ULL) {
 		file = "xy";
 		v = "y";
+	} else if (gen == 6 && title_id == 0x000400000011C400ULL) { // v0.93: Omega Ruby (tools/routes_oras.py)
+		file = "oras";
+		v = "or";
+	} else if (gen == 6 && title_id == 0x000400000011C500ULL) { // v0.93: Alpha Sapphire
+		file = "oras";
+		v = "as";
 	} else if (gen == 4 && (title_id >> 32) == 0x0004800DULL) {
 		// v0.61: DS saves get a made-up title ID (storage.cpp): bits 24-31 = 1 Diamond, 2 Pearl, 3 Platinum
 		static const char *const v4[] = { NULL, "d", "p", "pt" };

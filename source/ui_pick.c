@@ -26,7 +26,7 @@ static int per_box, nboxes;
 static char box_name[32];
 
 static ui_image big[2], small_cur;
-static int big_species = -1, big_form = -1, big_gen = -1, big_animate;
+static int big_species = -1, big_form = -1, big_gen = -1, big_female = -1, big_animate;
 
 // v0.61: 3 = a DS save file on the SD card (TWiLight Menu++; user: "show up different from cartridges")
 static const char *const k_kind[4] = { "Virtual Console", "Game card", "Game Boy Advance", "SD card (TWiLight Menu)" };
@@ -46,13 +46,14 @@ static void free_big(void)
 	big_species = -1;
 }
 
-static void load_big(int species, int form, int gen)
+static void load_big(int species, int form, int gen, int female)
 {
-	if (species == big_species && form == big_form && gen == big_gen)
+	if (species == big_species && form == big_form && gen == big_gen && female == big_female)
 		return;
 	free_big();
 	static u8 spr[WBX_SPRITE_SIZE];
-	wbx_sprite_load_for(species, gen == 2 ? form : 0, gen, spr); // Gen 1/2 games: the Gen 1/2 set
+	// Gen 1/2 and Gen 3 sets; v0.90: Gen 5-7 forms and the female picture (Pyroar)
+	wbx_sprite_load_for_g(species, (gen == 2 || gen == 3 || gen >= 5) ? form : 0, gen, female, spr);
 	ui_image_from_walker(&big[0], spr + WBX_SPRITE_SMALL_SIZE, 64, 48, 0);
 	ui_image_from_walker(&big[1], spr + WBX_SPRITE_SMALL_SIZE + 0x300, 64, 48, 0);
 	ui_image_from_walker(&small_cur, spr, 32, 24, 0);
@@ -60,6 +61,7 @@ static void load_big(int species, int form, int gen)
 	big_species = species;
 	big_form = form;
 	big_gen = gen;
+	big_female = female;
 }
 
 static int load_box(int g, int box)
@@ -383,7 +385,7 @@ static int box_view(int g)
 		}
 		const storage_box_mon *m = &mons[cur];
 		if (m->present && !m->egg)
-			load_big(m->species, m->form, games[g].gen);
+			load_big(m->species, m->form, games[g].gen, m->gender == 1);
 		if (d & KEY_A) {
 			if (!m->present)
 				message(g, box, cur, "Send to walker", "That slot is empty.");

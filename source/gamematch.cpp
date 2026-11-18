@@ -539,6 +539,51 @@ namespace walkerbox
             where = "PC";
             return true;
         }
+        // v0.94 (FRLG courses): Gen 3 has an item PC (owner, v0.53: "items sent over should go to pc, not item bag.
+        // Unless its a generation without an item pc") -> the PC item storage (30 slots in FireRed / LeafGreen, up to
+        // 999 of an item, no security key); national item number -> Gen 3's own (PKSM-Core Item3); an item FRLG does
+        // not have is refused. The edit lies in the large block (gameMatchItems -> gameMatchItems3).
+        if (sav.generation() == pksm::Generation::THREE)
+        {
+            bool exists = false;
+            for (auto& [pouch, valid] : sav.validItems())
+                if (pouch == P::PCItem)
+                    exists = std::find(valid.begin(), valid.end(), (int)id) != valid.end();
+            if (gen2Id || !exists)
+            {
+                where = "does not exist in this game";
+                return false;
+            }
+            int n = 0;
+            for (auto& pr : sav.pouches())
+                if (pr.first == P::PCItem)
+                    n = pr.second;
+            int empty = -1;
+            for (int s = 0; s < n; s++)
+            {
+                auto it = sav.item(P::PCItem, (u16)s);
+                if (it->id() == id && it->count() < 999)
+                {
+                    it->count(it->count() + 1);
+                    sav.item(*it, P::PCItem, (u16)s);
+                    where = "PC";
+                    return true;
+                }
+                if (it->id() == 0 && empty < 0)
+                    empty = s;
+            }
+            if (empty < 0)
+            {
+                where = "the PC item storage is full";
+                return false;
+            }
+            auto it = sav.item(P::PCItem, (u16)empty);
+            it->id(id);
+            it->count(1);
+            sav.item(*it, P::PCItem, (u16)empty);
+            where = "PC";
+            return true;
+        }
         // v0.56: Gen 7 too; v0.62: Diamond / Pearl / Platinum (no item PC in Gen 4 either -> the bag)
         if (sav.generation() == pksm::Generation::SIX || sav.generation() == pksm::Generation::SEVEN ||
             sav.generation() == pksm::Generation::FOUR)
@@ -584,8 +629,20 @@ namespace walkerbox
         return false;
     }
 
+    bool gameMatchItems3(pksm::Sav& sav, const uint8_t* before, uint32_t length, std::string& note);
+
     bool gameMatchItems(pksm::Sav& sav, const uint8_t* before, uint32_t length, std::string& note)
     {
+        if (sav.generation() == pksm::Generation::THREE) // v0.94: FireRed / LeafGreen, saved as the game does
+        {
+            if (length == 0x20000 && gameMatchItems3(sav, before, length, note)) // 128 KiB (G3_SIZE, below)
+                return true;
+            if (length != 0x20000)
+                note = "not a 128 KiB Gen 3 save";
+            memcpy(sav.rawData().get(), before, length); // refused: the save as before (as every other generation)
+            sav.beginEditing();
+            return false;
+        }
         const bool g2 = sav.generation() == pksm::Generation::TWO;
         const bool g6 = sav.generation() == pksm::Generation::SIX && (length == G6_XY || length == G6_ORAS);
         // v0.56: Gen 7 like Gen 6 (the bag, the block table), plus the 0x80-byte signature (g7SigStart)
@@ -806,7 +863,53 @@ namespace walkerbox
         return pick;
     }
 
+    // v0.94 (FRLG walk items): the Gen 3 save rule shared by box edits and item edits - only data in sectors firstId..
+    // lastId of the current copy may differ from `before`; then the edited copy is saved the way the game saves (a
+    // new copy in the other slot, counter + 1, sectors rotated; the current copy left as it was).
+    static bool g3SaveAsGame(pksm::Sav& sav, const uint8_t* before, uint32_t length, int firstId, int lastId,
+        const char* what, std::string& note);
+
+    // v0.94 (FRLG Hall of Fame): a FireRed / LeafGreen event flag from the current save copy (PKSM-Core keeps
+    // Sav3::getEventFlag protected). FRLG keep the flags at 0xEE0 of the large block (sector ids 1-4, 0xF80 data bytes
+    // each; PKHeX SAV3FRLG / PKSM-Core SavFRLG); tests/test_frlg.cpp checks badges 0x820-0x827 against PKSM-Core's
+    // badges(). -1 = no valid copy.
+    int gen3FlagFRLG(const uint8_t* save, uint32_t length, int flag)
+    {
+        return gen3Flag(save, length, 0xEE0, flag);
+    }
+
+    // v0.97 (RSE courses): the same for every Gen 3 game - flagsAt = where the game keeps its event flags in the large
+    // block (PKSM-Core SavRS / SavE / SavFRLG: Ruby / Sapphire 0x1220, Emerald 0x1270, FireRed / LeafGreen 0xEE0).
+    int gen3Flag(const uint8_t* save, uint32_t length, uint32_t flagsAt, int flag)
+    {
+        if (length != G3_SIZE || flag < 0 || flag >= 0x900)
+            return -1;
+        uint32_t counter = 0;
+        int rotation     = 0;
+        int cur          = gen3CurrentSlot(save, counter, rotation);
+        if (cur < 0)
+            return -1;
+        G3Slot s     = g3Slot(save, cur);
+        uint32_t ofs = flagsAt + (uint32_t)flag / 8; // in the large block
+        int id       = 1 + (int)(ofs / G3_SUMLEN);
+        const u8* p  = save + cur * G3_SLOT + s.phys[id] * G3_SECTOR + ofs % G3_SUMLEN;
+        return (*p >> (flag & 7)) & 1;
+    }
+
     bool gameMatchFinish3(pksm::Sav& sav, const uint8_t* before, uint32_t length, std::string& note)
+    {
+        return g3SaveAsGame(sav, before, length, G3_FIRST_BOX_ID, G3_SECTORS - 1, "box data", note);
+    }
+
+    // v0.94: a walk item put into a FireRed / LeafGreen bag (PKSM-Core edits it in place, the large block = sector
+    // ids 1-4) is saved the same way.
+    bool gameMatchItems3(pksm::Sav& sav, const uint8_t* before, uint32_t length, std::string& note)
+    {
+        return g3SaveAsGame(sav, before, length, 1, 4, "item data", note);
+    }
+
+    static bool g3SaveAsGame(pksm::Sav& sav, const uint8_t* before, uint32_t length, int firstId, int lastId,
+        const char* what, std::string& note)
     {
         if (sav.generation() != pksm::Generation::THREE || length != G3_SIZE || !before)
         {
@@ -839,9 +942,9 @@ namespace walkerbox
             }
             uint32_t sec = (i - base) / G3_SECTOR, off = (i - base) % G3_SECTOR;
             uint16_t id  = rd16(before + base + sec * G3_SECTOR + 0xFF4);
-            if (off >= G3_SUMLEN || id < G3_FIRST_BOX_ID)
+            if (off >= G3_SUMLEN || id < firstId || id > lastId)
             {
-                note = "the edit touched more than the boxes (sector " + std::to_string(id) + ")";
+                note = std::string("the edit touched more than the ") + what + " (sector " + std::to_string(id) + ")";
                 return false;
             }
         }
@@ -875,7 +978,7 @@ namespace walkerbox
         }
         memcpy(d, out.data(), length);
         note = std::string("Gen 3: saved as the game does - new copy in slot ") + (target ? "B" : "A") +
-               ", counter " + std::to_string(newCounter) + " (" + std::to_string(changed) + " byte(s) of box data)";
+               ", counter " + std::to_string(newCounter) + " (" + std::to_string(changed) + " byte(s) of " + what + ")";
         return true;
     }
 }

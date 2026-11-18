@@ -39,6 +39,10 @@ namespace walkerbox
     //    (The game's "met location 8" +1 is a HeartGold/SoulSilver map rule and is left out.)
     //  - EV walking (the user's rule, 2026-11-14): +1 EV every 20 steps in the stat chosen at send, capped at
     //    the game's own limits (255 per stat in Gen 3-5, 252 in Gen 6-7, 510 in all); off for Gen 1/2.
+    //    v0.95 (owner, 2026-11-17: "let's go ahead and do"): Gen 3/4 only as far as the Pokemon's EXP since it was met
+    //    can explain them (PKHeX EffortExpLegality: EVs above the vitamin part need battle EXP; tests/run_evwalk.sh),
+    //    and none at level 100 (Gen 3/4 give no battle EVs at level 100); evLimited says the walk gave fewer.
+    //    Never takes EVs away.
     enum WalkEvStat { EV_OFF = -1, EV_HP = 0, EV_ATK, EV_DEF, EV_SPA, EV_SPD, EV_SPE };
 
     struct WalkGains
@@ -50,7 +54,12 @@ namespace walkerbox
         u8 friendBefore = 0, friendAfter = 0;
         int evStat = EV_OFF;
         u16 evBefore = 0, evAfter = 0;
+        bool evLimited = false; // v0.95: Gen 3/4 - fewer EVs than the walk's steps would give (EXP / level 100)
     };
+
+    // v0.95: do a Gen 3/4 Pokemon's EVs fit its EXP since it was met (PKHeX's rule; Pokerus not counted, so a little
+    // stricter)? Always true for other generations.
+    bool walkEvsFitExp(const pksm::PKX& pk, int gen);
 
     // Changes pk in place (and its party data for Gen 1/2). Returns false if nothing could be applied.
     bool applyWalkGains(pksm::PKX& pk, int gen, u32 steps, int evStat, WalkGains& out);
@@ -84,5 +93,8 @@ namespace walkerbox
     // format and language); unused for Gen 6. Returns false (why) if the template cannot be used.
     bool buildCatch(const CatchTemplate& t, const CatchTrainer& tr, const pksm::PKX* shell, bool shiny, bool female,
         u32 seed, int day, int month, int year, std::unique_ptr<pksm::PKX>& out, std::string& why);
+    // v0.97: does this PID + IVs (HP, Atk, Def, SpA, SpD, Spe) fit a Gen 3 event's B-A-C-D pattern (PKHeX MethodFinder
+    // GetBACDMatch, any variant)? A hatched Gen 4 egg that fits is read as that event: "PID+ correlation".
+    bool pidIvLooksLikeEvent3(u32 pid, const u8 iv[6], u16 idXor);
     const char* walkEvName(int evStat); // "Off", "HP", "Atk", "Def", "SpA", "SpD", "Spe"
 }

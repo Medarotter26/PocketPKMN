@@ -67,17 +67,18 @@ int main(int argc, char** argv)
         if (!sav)
             continue;
         bool g2 = sav->generation() == pksm::Generation::TWO;
+        bool pc = g2 || sav->generation() == pksm::Generation::THREE; // v0.94: Gen 3 (FRLG) has an item PC too
         std::vector<u8> before(sav->rawData().get(), sav->rawData().get() + len);
         // a course item (Gen 2: Everstone = Gen 2 id 112; X/Y: Everstone national 229) and a gift (national Potion 17)
         u16 courseId = g2 ? 112 : 229;
-        int everBefore = countOf(*sav, 229, g2), potionBefore = countOf(*sav, 17, g2);
+        int everBefore = countOf(*sav, 229, pc), potionBefore = countOf(*sav, 17, pc);
         std::string where;
         CHECK(walkerbox::addItemToSave(*sav, courseId, g2, where), "%s: course item: %s", argv[a], where.c_str());
         CHECK(walkerbox::addItemToSave(*sav, 17, false, where), "%s: gift item: %s", argv[a], where.c_str());
         // one item list at a time, as the game stores them one by one: commit after each would be the same rule;
         // here both land in the same list (Gen 2 PC) or two pockets (X/Y) - check them one at a time
         std::string note;
-        if (g2)
+        if (pc) // both items in the one PC list (Gen 2; v0.94 Gen 3)
             CHECK(walkerbox::gameMatchItems(*sav, before.data(), (u32)len, note), "%s: %s", argv[a], note.c_str());
         else
         {
@@ -110,10 +111,10 @@ int main(int argc, char** argv)
         CHECK(again && again->checksumsValid(), "%s: checksums not valid after the items", argv[a]);
         if (again)
         {
-            CHECK(countOf(*again, 229, g2) == everBefore + 1, "%s: Everstone %d -> %d", argv[a], everBefore,
-                  countOf(*again, 229, g2));
-            CHECK(countOf(*again, 17, g2) == potionBefore + 1, "%s: Potion %d -> %d", argv[a], potionBefore,
-                  countOf(*again, 17, g2));
+            CHECK(countOf(*again, 229, pc) == everBefore + 1, "%s: Everstone %d -> %d", argv[a], everBefore,
+                  countOf(*again, 229, pc));
+            CHECK(countOf(*again, 17, pc) == potionBefore + 1, "%s: Potion %d -> %d", argv[a], potionBefore,
+                  countOf(*again, 17, pc));
         }
         char out[512];
         const char* base = strrchr(argv[a], '/');
